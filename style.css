@@ -131,7 +131,7 @@ button:hover{background:transparent}.primary:hover{background:var(--ink);opacity
 .tour-help{font:600 14px/1 system-ui;width:26px;min-width:26px;height:26px;padding:0;border-radius:50%;border:1px solid var(--line,currentColor);background:transparent;color:inherit}
 .tour-help:hover{background:var(--wash,#eee)}
 .tour-layer{position:fixed;inset:0;z-index:70;pointer-events:none}
-.tour-ring{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px #00000073,0 0 0 2px #fff8 inset;transition:left .16s ease,top .16s ease,width .16s ease,height .16s ease}
+.tour-ring{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px #00000073,0 0 0 2px #fff8 inset}
 .tour-card{position:fixed;width:min(320px,calc(100vw - 32px));padding:14px 16px;border:1px solid var(--line,#dedbd4);border-radius:12px;background:var(--paper,#f9f8f6);color:var(--ink,#282724);box-shadow:0 12px 32px #0000002e;pointer-events:auto;font:14px/1.65 var(--shunxi-tavern-font,inherit)}
 .tour-card small{display:block;font-size:11px;opacity:.6;margin:0 0 6px}
 .tour-card h2{margin:0 0 6px;font-size:15px;font-weight:600}

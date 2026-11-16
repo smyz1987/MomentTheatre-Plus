@@ -76,13 +76,17 @@ export function startTour({ shadow, goto, onFinish } = {}) {
   const show = () => {
     const step = steps[index];
     if (!step) return finish(true);
-    // 文案同步写入，保证每次点击都立刻前进；只有测量位置需要等一帧。
+    // 文案同步写入，保证每次点击都立刻前进；定位也先同步量一次，
+    // 这样即使页面在后台（定时器被节流）光圈也不会停在上一步。
     counter.textContent = `${index + 1} / ${steps.length}`;
     title.textContent = step.title;
     text.textContent = step.text;
     prev.hidden = index === 0;
     next.textContent = index === steps.length - 1 ? '完成' : '下一步';
     if (typeof goto === 'function' && step.tab) goto(step.tab);
+    target = shadow?.querySelector?.(step.anchor) || document.querySelector(step.anchor);
+    if (target) { target.scrollIntoView?.({ block: 'center', behavior: 'auto' }); place(); return; }
+    // 目标还没进 DOM（切页面后异步挂载的情况），等一帧再补一次；页面在后台时用超时兜底。
     soon(() => {
       target = shadow?.querySelector?.(step.anchor) || document.querySelector(step.anchor);
       if (!target) { index++; if (index < steps.length) return show(); return finish(true); }
