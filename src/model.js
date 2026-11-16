@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   readContext: false, contextCount: 10, words: 5000, targetMessages: 50, maxTokens: 60000, stream: true, regexPresets: {}, regexCharacters: {}, bookCharacter: '', characterBooks: {},
   proseTheme: 'prose-stamp', phoneTheme: 'phone-light', launcherEnabled: true, launcher: { x: null, y: null }, models: [], modelsEndpoint: '',
   personaMode: 'current', customPersonaName: '', customPersonaDescription: '', presetOverrides: {}, bookOverrides: {}, stickers: DEFAULT_STICKERS, stickerCatalogVersion: 2, stickerDraft: null,
-  readScale: 1,
+  readScale: 1, tourDone: false,
 });
 export function emptyState() {
   return { schemaVersion: SCHEMA, themeCatalogVersion: 1, settings: clone(DEFAULT_SETTINGS), categories: [], stories: [], scripts: [], scriptDrafts: [], themes: [], errors: [], editorDraft: null, draft: { prompt: '', mode: 'prose' } };
@@ -115,6 +115,7 @@ export function normalizeState(raw) {
   }
   state.settings.readContext = s.readContext === true;
   state.settings.readScale = clamp(s.readScale ?? DEFAULT_SETTINGS.readScale, 0.8, 1.4, DEFAULT_SETTINGS.readScale);
+  state.settings.tourDone = s.tourDone === true;
   for (const [key, min, max] of [['contextCount', 1, 200], ['words', 100, 20000], ['targetMessages', 1, 1000], ['maxTokens', 128, 200000]]) {
     state.settings[key] = clamp(s[key] ?? DEFAULT_SETTINGS[key], min, max, DEFAULT_SETTINGS[key]);
   }

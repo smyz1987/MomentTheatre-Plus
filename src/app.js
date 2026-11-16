@@ -29,6 +29,7 @@ import { BUILTIN_THEMES, validateTheme, resolveTheme, captureReadingTheme, resol
 import { convertTavernTheme, isTavernThemeJson, tavernFontFamily, tavernChatBackground } from './tavern-look.js';
 import { storyPlainText, storySourceText } from './story-copy.js';
 import { stripMixedForHistory, mixedStats } from './mixed-format.js';
+import { startTour } from './tour.js';
 import { renderReader } from './reader.js';
 import { proseDiagnosticText, originalProse } from './prose-diagnostics.js';
 import { cleanHtml, htmlIssue, htmlDocument, HTML_SANDBOX } from './html-work.js';
@@ -138,10 +139,11 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   const fullscreen = readerFullscreen(dialog, content);
   const status = el('div', { class: 'status', role: 'status', 'aria-live': 'polite' });
   const protection = el('p', { class:'status library-protection', role:'status', hidden:true });
-  const nav = el('nav', { class: 'tabs', 'aria-label': '页面' });
+  const nav = el('nav', { class: 'tabs', 'aria-label': '页面', 'data-tour': 'nav' });
   const themeButton = button(windowIcon('day'), toggleTheme, { disabled: true, class: 'icon-button', 'aria-label': '切换日夜模式' });
+  const tourButton = button('?', () => startTourGuide(), { class: 'icon-button tour-help', 'aria-label': '功能介绍', title: '功能介绍' });
   const header = el('header', { class: 'topbar' }, el('div', { class: 'brand' }, mobius(), el('span', {}, '瞬息')), nav,
-    el('div', { class: 'window-actions' }, themeButton, button(windowIcon('minimize'), () => dialog.close(), { class: 'icon-button', 'aria-label': '收起瞬息，生成继续' })));
+    el('div', { class: 'window-actions' }, tourButton, themeButton, button(windowIcon('minimize'), () => dialog.close(), { class: 'icon-button', 'aria-label': '收起瞬息，生成继续' })));
   dialog.append(header);
   dialog.append(status, protection, content);
   // A slotted light-DOM button is discoverable by document selectors/hit testing.
@@ -256,9 +258,23 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   }
   function setLauncherEnabled(value) { if (!ready) { nativePanel?.sync(!launcher.hidden, true); return; } state.settings.launcherEnabled = value; launcher.hidden = !value; nativePanel?.sync(value); scheduleSave(); }
   async function action(fn) { if (busyAction||store?.health.writable===false) return; busyAction = true; try { await fn(); } catch (e) { report(e); } finally { busyAction = false; } }
-  function open() { unread = false; launcher.querySelector('.unread').hidden = true; launcher.classList.remove('complete'); if (!dialog.open) dialog.showModal(); autoSync?.wake(); if (ready) refreshCatalog(false); }
+  function open() { unread = false; launcher.querySelector('.unread').hidden = true; launcher.classList.remove('complete'); if (!dialog.open) dialog.showModal(); autoSync?.wake(); if (ready) refreshCatalog(false); startTourGuide(true); }
   function toggleTheme() { if (!ready) return; state.settings.theme = state.settings.theme === 'night' ? 'day' : 'night'; root.dataset.theme = launcher.dataset.theme = state.settings.theme; themeButton.replaceChildren(windowIcon(state.settings.theme)); scheduleSave(); }
   function changeTab(value) { if (editing) { notify('请先保存或取消章节编辑。'); return; } tab = value; render(true); content.scrollTop = 0; }
+  // 新手引导：第一次打开自动弹一次，之后点右上角「?」随时重看。
+  let tour = null;
+  function startTourGuide(auto = false) {
+    if (tour || !ready) return;
+    if (auto) {
+      if (state.settings.tourDone === true) return;
+      if (!dialog.open || task || editing || shadow.querySelector('.popup[open]') || shadow.querySelector('.tour-layer')) return;
+    }
+    if (shadow.querySelector('.tour-layer')) return;
+    tour = startTour({ shadow: dialog,
+      goto: value => { if (value && value !== tab) changeTab(value); },
+      onFinish: () => { tour = null; if (auto) { state.settings.tourDone = true; scheduleSave(); } } });
+  }
+  dialog.addEventListener('close', () => { tour?.close(); });
   function renderNav() { nav.replaceChildren(...[['generate', '番外'], ['scripts', '剧本'], ['library', '故事'], ['themes', '美化'], ['settings', '设置']].map(([value, title]) => button(title, () => changeTab(value), { 'aria-current': value === tab ? 'page' : null, class: value === tab ? 'active' : '' }))); }
   function render(switching = false) {
     if (!ready) { renderStartup(); return; }
@@ -391,8 +407,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       if(drafts.length===1)return resume(drafts[0]);
       let pop;pop=popup('返回草稿',el('div',{class:'choice-list'},drafts.map(item=>button(item.title,()=>{pop.close();resume(item);}))));
     }, {class:'text-button',disabled:Boolean(task)||editing}) : null, button('导入', importExternal, { class: 'text-button', 'data-tour': 'import', disabled: Boolean(task) || editing }), button('保存剧本', saveComposerScript, { class: 'text-button', disabled: editing }))));
-    const promptInput = el('textarea', { rows: 3, value: state.draft.prompt, 'aria-label': '番外设定', placeholder: '想看看另一个世界的你们？写下这篇番外的设定与要求。', disabled: Boolean(task) || editing, onInput: e => { state.draft.prompt = e.target.value; scheduleSave(); } });
-    const modes = el('fieldset', { class: 'mode-choice', disabled: Boolean(task) || editing }, el('legend', {}, '生成模式'), ['prose', 'mixed', 'phone', 'html'].map(value => el('label', {}, el('input', { type: 'radio', name: 'story-mode', value, checked: mode === value, onChange: () => { state.draft.mode = value; scheduleSave(); render(); } }), modeLabel(value))));
+    const promptInput = el('textarea', { rows: 3, value: state.draft.prompt, 'data-tour': 'prompt', 'aria-label': '番外设定', placeholder: '想看看另一个世界的你们？写下这篇番外的设定与要求。', disabled: Boolean(task) || editing, onInput: e => { state.draft.prompt = e.target.value; scheduleSave(); } });
+    const modes = el('fieldset', { class: 'mode-choice', 'data-tour': 'modes', disabled: Boolean(task) || editing }, el('legend', {}, '生成模式'), ['prose', 'mixed', 'phone', 'html'].map(value => el('label', {}, el('input', { type: 'radio', name: 'story-mode', value, checked: mode === value, onChange: () => { state.draft.mode = value; scheduleSave(); render(); } }), modeLabel(value))));
     const themeId = state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'];
     page.append(el('div', { class: 'composer' }, promptInput, el('div', { class: 'composer-options' }, modes, summary(mode, state.settings.words, themeId), button(task ? '生成中…' : '生成番外', () => run(false), { class: 'primary', disabled: Boolean(task) || editing }))));
     page.append(el('div', { class: 'generation-feedback', 'aria-live': 'polite' }, generationError ? el('div', { class: 'generation-error', role: 'alert' }, el('strong', {}, `${generationError.stage} · ${generationError.code}`), el('p', {}, generationError.message), button('查看报错记录', () => changeTab('settings'), { class: 'text-button' })) : null));
@@ -1196,7 +1212,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     }) });
     refreshDelete();
     return el('section', { class: 'page' }, el('div', { class: 'page-heading theme-heading' }, el('h1', {}, '阅读美化'),
-      el('div', { class: 'theme-actions' }, button('导入', () => imported.click(), { class: 'outline' }), button('导出', () => download(JSON.stringify({ format: 'shunxi-reading-themes', version: 1, themes: ['prose','phone'].map(mode => resolveTheme(state, mode, state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'])) }, null, 2), '瞬息-阅读主题.json', 'application/json'), { class: 'outline' }), deleteButton)),
+      el('div', { class: 'theme-actions' }, button('导入', () => imported.click(), { class: 'outline', 'data-tour': 'theme-import' }), button('导出', () => download(JSON.stringify({ format: 'shunxi-reading-themes', version: 1, themes: ['prose','phone'].map(mode => resolveTheme(state, mode, state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'])) }, null, 2), '瞬息-阅读主题.json', 'application/json'), { class: 'outline' }), deleteButton)),
       el('p', { class: 'muted' }, '选择新章节的阅读风格，已生成内容保留原样。'), el('div', { class: 'skins-grid' }, panels), imported);
   }
   function selectReadingTheme(mode, themeId) {
@@ -1674,13 +1690,14 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
           sourceSelector('preset'), regexSelector(), regexSelector('character'), sourceSelector('book')),
         el('div', { class: 'context-row' }, el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.readContext, onChange: e => { update('readContext', e.target.checked); render(); } }), '读取正文上下文'),
           el('input', { type: 'number', min: 1, max: 200, value: s.contextCount, disabled: !s.readContext, 'aria-label': '读取最近消息数', onChange: e => { update('contextCount', Math.min(200, Math.max(1, Math.floor(Number(e.target.value)) || 10))); e.target.value = s.contextCount; } }), el('small', {}, '条'))),
-      el('section', { class: 'settings-group' }, el('h2', {}, '外观'),
+      el('section', { class: 'settings-group', 'data-tour': 'look' }, el('h2', {}, '外观'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.followFont !== false, onChange: e => { update('followFont', e.target.checked); render(); } }), '字体跟随酒馆'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.followBackground === true, onChange: e => { update('followBackground', e.target.checked); render(); } }), '背景沿用酒馆聊天背景'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.cardScripts === true, onChange: e => { update('cardScripts', e.target.checked); render(); } }), '卡片脚本'),
         readScaleRow,
         el('p', { class: 'muted' }, '只作用于瞬息自己的阅读区与面板；「跟随酒馆」风格会在每次渲染时读取一次酒馆配色，不监听、不轮询。'),
-        el('p', { class: 'muted' }, '「卡片脚本」默认关：开启后混合模式里模型写的脚本会在独立沙箱里运行，只能改自己那张卡片，读不到酒馆页面；但写出死循环会占满渲染线程，整个标签页会卡住且无法中途停止。')),
+        el('p', { class: 'muted' }, '「卡片脚本」默认关：开启后混合模式里模型写的脚本会在独立沙箱里运行，只能改自己那张卡片，读不到酒馆页面；但写出死循环会占满渲染线程，整个标签页会卡住且无法中途停止。'),
+        el('div', { class: 'actions' }, button('重新观看功能介绍', () => startTourGuide(), { class: 'text-button' }))),
       el('section', { class: 'settings-group' }, el('h2', {}, '生成参数'),
         el('div', { class: 'parameter-pair' }, settingNumber('目标正文字数', 'words', 100, 20000), settingNumber('目标消息条数', 'targetMessages', 1, 1000)),
         el('div', { class: 'parameter-pair top-up-options' }, el('label', { class: 'top-up-toggle' }, el('input', { type: 'checkbox', checked: s.autoTopUp !== false, onChange: e => { update('autoTopUp', e.target.checked); refreshTopUpStepper(); } }), el('span', {}, '开启自动补足字数')), el('div', { class: 'top-up-setting' }, el('span', {}, '自动补足'), topUpStepper, el('span', {}, '次'))),
