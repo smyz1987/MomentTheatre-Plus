@@ -1,0 +1,181 @@
+import { recoverStoryTitle } from './story-title.js';
+import { phoneAppearance as normalizePhoneAppearance } from './phone-appearance.js';
+import { normalizeStickers } from './phone-format.js';
+import { DEFAULT_STICKERS } from './default-stickers.js';
+import { normalizeRegexRules } from './preset-regex.js';
+import { captureReadingTheme, resolveTheme, resolveLegacyTheme, validateTheme, BUILTIN_THEMES, THEME_ALIASES, RETIRED_THEME_IDS, TAVERN_THEME_IDS } from './themes.js';
+
+import { createId } from './id.js';
+
+export const VERSION = '1.3.0';
+export const normalizeMode = mode => ['prose', 'phone', 'html', 'mixed'].includes(mode) ? mode : 'prose';
+export const modeLabel = mode => ({ prose: '正文', phone: '小手机', html: 'HTML', mixed: '混合' }[mode] || '正文');
+export const SCHEMA = 1;
+export const id = createId;
+export const clone = value => structuredClone(value);
+export const text = (value, max = 1000000) => typeof value === 'string' ? value.slice(0, max) : '';
+export const unique = values => [...new Set(values)];
+export const clamp = (value, min, max, fallback) => Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Number(value))) : fallback;
+export const DEFAULT_SETTINGS = Object.freeze({
+  theme: 'day', apiMode: 'main', endpoint: '', model: '', character: '', persona: '', books: [], preset: '',
+  readContext: false, contextCount: 10, words: 5000, targetMessages: 50, maxTokens: 60000, stream: true, regexPresets: {}, regexCharacters: {}, bookCharacter: '', characterBooks: {},
+  proseTheme: 'prose-stamp', phoneTheme: 'phone-light', launcherEnabled: true, launcher: { x: null, y: null }, models: [], modelsEndpoint: '',
+  personaMode: 'current', customPersonaName: '', customPersonaDescription: '', presetOverrides: {}, bookOverrides: {}, stickers: DEFAULT_STICKERS, stickerCatalogVersion: 2, stickerDraft: null,
+});
+export function emptyState() {
+  return { schemaVersion: SCHEMA, themeCatalogVersion: 1, settings: clone(DEFAULT_SETTINGS), categories: [], stories: [], scripts: [], scriptDrafts: [], themes: [], errors: [], editorDraft: null, draft: { prompt: '', mode: 'prose' } };
+}
+export function newStory({ title, prompt, mode, themeId, snapshot }) {
+  return { id: id(), title: text(title, 120) || '未命名番外', prompt: text(prompt), mode: normalizeMode(mode),
+    themeId, snapshot: clone(snapshot), chapters: [], categoryIds: [], tags: [], saved: false,
+    continuationDraft: '', continuationMode: mode === 'html' ? '' : normalizeMode(mode), summaries: [], createdAt: Date.now(), updatedAt: Date.now() };
+}
+export function appendChapter(story, { content, instruction = '', complete = true, mode = story.mode, themeId = story.themeId, readingTheme = null, phoneAppearance, stickerSnapshot = [], wordCount = 0, targetWords = 0, messageCount = 0, targetMessages = 0, sourceContent = '', readingRegex = [] }) {
+  if (!text(content).trim() && !text(sourceContent).trim()) throw new Error('没有可保存的生成内容。');
+  if ((story.mode === 'html' || mode === 'html') && (story.mode !== 'html' || mode !== 'html' || story.chapters.length)) throw new Error('HTML 作品独立保存，不支持续写或混合章节。');
+  const last = story.chapters.at(-1);
+  if (last && !last.complete) throw new Error('请先整理未完成的最后一节，再继续续写。');
+  const phoneLike = mode === 'phone' || mode === 'mixed';
+  story.chapters.push({ id: id(), content: text(content), sourceContent: text(sourceContent), readingRegex: normalizeRegexRules(readingRegex), stickerSnapshot: normalizeStickers(stickerSnapshot), instruction: text(instruction), complete, mode, themeId, readingTheme: mode !== 'html' && readingTheme ? captureReadingTheme(readingTheme, mode) : null, ...(phoneLike && phoneAppearance !== undefined ? { phoneAppearance: normalizePhoneAppearance(phoneAppearance) } : {}), wordCount, targetWords, messageCount, targetMessages, createdAt: Date.now() });
+  story.continuationMode = mode === 'html' ? '' : mode;
+  story.updatedAt = Date.now();
+  return story;
+}
+export function invalidateSummaries(story, chapterIndex) {
+  story.summaries = (story.summaries || []).filter(s => s.through <= chapterIndex);
+}
+export function removeCategory(state, categoryId) {
+  state.categories = state.categories.filter(c => c.id !== categoryId);
+  for (const story of state.stories) story.categoryIds = story.categoryIds.filter(c => c !== categoryId);
+}
+export function filterStories(state, { category = 'all', tag = '', query = '' } = {}) {
+  const needle = query.trim().toLocaleLowerCase();
+  return state.stories.filter(s => s.saved)
+    .filter(s => category === 'all' || (category === 'uncategorized' ? s.categoryIds.length === 0 : s.categoryIds.includes(category)))
+    .filter(s => !tag || s.tags.includes(tag))
+    .filter(s => !needle || `${s.title}\n${s.prompt}\n${s.tags.join(' ')}`.toLocaleLowerCase().includes(needle))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+function assert(condition, message) { if (!condition) throw new Error(message); }
+function list(value, max, label) { assert(Array.isArray(value) && value.length <= max, `${label}格式或数量不正确。`); return value; }
+function safeId(value) { assert(typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value), '资料中的标识格式不正确。'); return value; }
+function strings(value, max = 1000) { return unique(list(value ?? [], max, '列表').map(v => text(v, 200)).filter(Boolean)); }
+export function normalizeState(raw) {
+  assert(raw && typeof raw === 'object' && raw.schemaVersion === SCHEMA, '此资料版本不受当前插件支持，请更新插件；原数据未覆盖。');
+  const state = emptyState();
+  const s = raw.settings ?? {};
+  // Device-local opt-in; do not add a field to legacy snapshot checksum shapes.
+  if (Object.hasOwn(s, 'autoSync')) state.settings.autoSync = s.autoSync === true;
+  // Keep absent legacy fields absent so old save/sync checksums remain valid.
+  // UI and generation use enabled / two attempts when these fields are absent.
+  if (Object.hasOwn(s, 'autoTopUp')) state.settings.autoTopUp = s.autoTopUp !== false;
+  if (Object.hasOwn(s, 'maxAutoTopUps')) state.settings.maxAutoTopUps = Math.floor(clamp(s.maxAutoTopUps, 1, 50, 2));
+  for (const key of ['storyTagCatalog','scriptTagCatalog']) if (Object.hasOwn(s,key)) state.settings[key] = strings(s[key],10000);
+  // Optional on legacy states: adding defaults would invalidate old sync snapshots.
+  if (Object.hasOwn(s, 'phoneAppearance')) state.settings.phoneAppearance = normalizePhoneAppearance(s.phoneAppearance);
+  // 外观跟随酒馆：缺省视为开启字体跟随、关闭背景图跟随，保持旧资料校验和不被改动。
+  if (Object.hasOwn(s, 'followFont')) state.settings.followFont = s.followFont !== false;
+  if (Object.hasOwn(s, 'followBackground')) state.settings.followBackground = s.followBackground === true;
+  for (const key of ['endpoint', 'model', 'character', 'persona', 'preset', 'proseTheme', 'phoneTheme']) state.settings[key] = text(s[key], 2000) || DEFAULT_SETTINGS[key];
+  state.settings.theme = s.theme === 'night' ? 'night' : 'day';
+  state.settings.apiMode = s.apiMode === 'independent' ? 'independent' : 'main';
+  state.settings.books = strings(s.books);
+  state.settings.bookCharacter = text(s.bookCharacter, 2000);
+  state.settings.characterBooks = Object.fromEntries(Object.entries(s.characterBooks || {}).slice(0, 1000).map(([key, value]) => [key, { selected:strings(value?.selected), linked:strings(value?.linked) }]));
+  for (const field of ['regexPresets', 'regexCharacters']) state.settings[field] = Object.fromEntries(Object.entries(s[field] || {}).slice(0, 1000).map(([name, config]) => [name, {
+    selected: strings(config.selected, 200),
+    edits: Object.fromEntries(Object.entries(config.edits || {}).slice(0, 200).map(([key, rule]) => [key, normalizeRegexRules([{ ...rule, id: key }])[0]])),
+  }]));
+  state.settings.stickers = normalizeStickers(s.stickers);
+  if (![1,2].includes(s.stickerCatalogVersion)) {
+    const existing = new Set(state.settings.stickers.map(row => row.name.trim()));
+    state.settings.stickers.push(...clone(DEFAULT_STICKERS.filter(row => !existing.has(row.name))));
+  }
+  state.settings.stickerCatalogVersion = s.stickerCatalogVersion === 2 ? 2 : 1;
+  if (s.stickerDraft && typeof s.stickerDraft === 'object') {
+    const item = normalizeStickers([s.stickerDraft.item])[0];
+    const index = Number.isInteger(s.stickerDraft.index) && s.stickerDraft.index >= 0 && s.stickerDraft.index < state.settings.stickers.length ? s.stickerDraft.index : null;
+    state.settings.stickerDraft = { index, item };
+  }
+  if (Object.hasOwn(s, 'stickerBatchDraft')) {
+    const batch = s.stickerBatchDraft;
+    const items = batch && Array.isArray(batch.items) ? normalizeStickers(batch.items).slice(0, 9) : [];
+    state.settings.stickerBatchDraft = items.length ? { items, selected: Math.max(0, Math.min(items.length - 1, Math.floor(Number(batch.selected) || 0))) } : null;
+  }
+  state.settings.personaMode = s.personaMode === 'custom' ? 'custom' : 'current';
+  state.settings.customPersonaName = text(s.customPersonaName, 120);
+  state.settings.customPersonaDescription = text(s.customPersonaDescription, 50000);
+  for (const key of ['presetOverrides', 'bookOverrides']) {
+    state.settings[key] = Object.fromEntries(Object.entries(s[key] || {}).slice(0, 1000).map(([name, entries]) => [name,
+      Object.fromEntries(Object.entries(entries || {}).slice(0, 5000).map(([entry, value]) => [entry,
+        { ...(typeof value?.enabled === 'boolean' ? { enabled: value.enabled } : {}), ...(typeof value?.content === 'string' ? { content: text(value.content, 100000) } : {}) }]))]));
+  }
+  state.settings.readContext = s.readContext === true;
+  for (const [key, min, max] of [['contextCount', 1, 200], ['words', 100, 20000], ['targetMessages', 1, 1000], ['maxTokens', 128, 200000]]) {
+    state.settings[key] = clamp(s[key] ?? DEFAULT_SETTINGS[key], min, max, DEFAULT_SETTINGS[key]);
+  }
+  state.settings.stream = s.stream !== false;
+  state.settings.launcherEnabled = s.launcherEnabled !== false;
+  state.settings.models = strings(s.models, 10000);
+  state.settings.modelsEndpoint = text(s.modelsEndpoint, 2000);
+  if (Number.isFinite(s.launcher?.x) && Number.isFinite(s.launcher?.y)) state.settings.launcher = { x: s.launcher.x, y: s.launcher.y };
+  state.draft = { prompt: text(raw.draft?.prompt), mode: normalizeMode(raw.draft?.mode) };
+  state.editorDraft = raw.editorDraft && typeof raw.editorDraft === 'object' ? { storyId: text(raw.editorDraft.storyId, 100), chapterId: text(raw.editorDraft.chapterId, 100), title: text(raw.editorDraft.title, 120), content: text(raw.editorDraft.content), complete: raw.editorDraft.complete !== false } : null;
+  const categoryIds = new Set();
+  state.categories = list(raw.categories ?? [], 1000, '分类').map(c => {
+    const key = safeId(c.id); assert(!categoryIds.has(key), '分类标识重复。'); categoryIds.add(key);
+    return { id: key, name: text(c.name, 120).trim() || '未命名分类' };
+  });
+  const storyIds = new Set();
+  const scriptIds = new Set();
+  state.scripts = list(raw.scripts ?? [], 10000, '剧本').map(s => {
+    const key = safeId(s.id); assert(!scriptIds.has(key), '剧本标识重复。'); scriptIds.add(key);
+    return { id: key, title: text(s.title, 120), content: text(s.content), tags: strings(s.tags, 100),
+      mode: ['prose', 'phone', 'html'].includes(s.mode) ? s.mode : 'any',
+      createdAt: Number(s.createdAt) || 1, updatedAt: Number(s.updatedAt) || 1, syncConflict: s.syncConflict === true };
+  });
+  const scriptDraftIds = new Set();
+  state.scriptDrafts = list(raw.scriptDrafts ?? [], 10000, '剧本草稿').map(d => {
+    const key = safeId(d.id); assert(!scriptDraftIds.has(key), '剧本草稿标识重复。'); scriptDraftIds.add(key);
+    return { id: key, scriptId: text(d.scriptId, 100), title: text(d.title, 120), content: text(d.content), tagsText: text(d.tagsText, 10000),
+      mode: ['prose', 'phone', 'html'].includes(d.mode) ? d.mode : 'any' };
+  });
+  state.themes = list(raw.themes ?? [], 100, '主题').map(theme => validateTheme(theme));
+  state.stories = list(raw.stories ?? [], 10000, '番外').map(s => {
+    const key = safeId(s.id); assert(!storyIds.has(key), '番外标识重复。'); storyIds.add(key);
+    const chapters = list(s.chapters, 2000, '章节').map(c => ({ id: safeId(c.id), content: text(c.content), sourceContent: text(c.sourceContent), readingRegex: normalizeRegexRules(c.readingRegex), stickerSnapshot: normalizeStickers(c.stickerSnapshot), instruction: text(c.instruction), complete: c.complete !== false,
+      ...(Object.hasOwn(c, 'phoneAppearance') ? { phoneAppearance: normalizePhoneAppearance(c.phoneAppearance) } : {}),
+      mode: normalizeMode(c.mode || s.mode), themeId: text(c.themeId || s.themeId, 100), wordCount: Number(c.wordCount) || 0, targetWords: Number(c.targetWords) || 0,
+      readingTheme: normalizeMode(c.mode || s.mode) === 'html' ? null : captureReadingTheme(c.readingTheme || (raw.themeCatalogVersion === 1 ? resolveTheme : resolveLegacyTheme)(state, normalizeMode(c.mode || s.mode), c.themeId || s.themeId), normalizeMode(c.mode || s.mode)),
+      messageCount: Number(c.messageCount) || 0, targetMessages: Number(c.targetMessages) || 0, createdAt: Number(c.createdAt) || Date.now() }));
+    assert(new Set(chapters.map(c => c.id)).size === chapters.length, '章节标识重复。');
+    assert(s.mode === 'html' ? chapters.length <= 1 && chapters.every(c => c.mode === 'html') : chapters.every(c => c.mode !== 'html'), 'HTML 作品需独立保存，不支持续写或混合章节。');
+    return { id: key, title: text(s.title, 120) || '未命名番外', prompt: text(s.prompt), mode: normalizeMode(s.mode),
+      themeId: text(s.themeId, 100), snapshot: s.snapshot && typeof s.snapshot === 'object' ? clone(s.snapshot) : null,
+      chapters, categoryIds: strings(s.categoryIds).filter(c => categoryIds.has(c)), tags: strings(s.tags, 100), saved: s.saved === true, syncConflict: s.syncConflict === true,
+      continuationDraft: s.mode === 'html' ? '' : text(s.continuationDraft), continuationMode: s.mode === 'html' ? '' : (() => { const next = s.continuationMode || chapters.at(-1)?.mode || s.mode; return next === 'phone' || next === 'mixed' ? next : 'prose'; })(),
+      summaries: list(s.summaries ?? [], 10000, '剧情总结').filter(x => Number.isInteger(x.through) && x.through > 0 && x.through <= chapters.length && x.through % 10 === 0).map(x => {
+        assert(typeof x.content === 'string' && x.content.length <= 1000000, '剧情摘要格式或长度不受支持，原资料未覆盖。');
+        if (x.kind !== undefined) assert(['segment', 'century'].includes(x.kind) && x.from === x.through - (x.kind === 'segment' ? 9 : 99) && x.from > 0 && (x.kind !== 'century' || x.through % 100 === 0), '剧情摘要区间无效，原资料未覆盖。');
+        return { through: x.through, content: x.content, ...(x.kind ? { kind: x.kind, from: x.from } : {}) };
+      }),
+      createdAt: Number(s.createdAt) || Date.now(), updatedAt: Number(s.updatedAt) || Date.now() };
+  });
+  state.errors = list(raw.errors ?? [], 50, '报错记录').map(e => ({ time: Number(e.time) || Date.now(), stage: text(e.stage, 80), code: text(e.code, 80), message: text(e.message, 1500) }));
+  if (raw.themeCatalogVersion !== 1) {
+    // Freeze old chapters above before removing superseded development themes.
+    state.themes = state.themes.filter(t => !THEME_ALIASES[t.id] && !RETIRED_THEME_IDS.includes(t.id));
+    for (const [key, mode] of [['proseTheme', 'prose'], ['phoneTheme', 'phone']]) {
+      const candidate = THEME_ALIASES[state.settings[key]] || state.settings[key];
+      state.settings[key] = [...BUILTIN_THEMES, ...state.themes].some(t => t.id === candidate && t.mode === mode) || TAVERN_THEME_IDS.includes(candidate) ? candidate : DEFAULT_SETTINGS[key];
+    }
+    state.errors = state.errors.filter(e => !e.stage.startsWith('预览模拟'));
+  }
+  state.stories.forEach(recoverStoryTitle);
+  return state;
+}
+export function backup(state) {
+  // Whitelisted settings never contain credentials. Credentials live separately in scoped browser storage.
+  const clean = normalizeState(state);
+  return JSON.stringify({ ...clean, exportedAt: new Date().toISOString(), app: 'shunxi' }, null, 2);
+}

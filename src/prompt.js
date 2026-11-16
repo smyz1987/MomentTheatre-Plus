@@ -1,0 +1,168 @@
+import { phonePrompt, parsePhoneReport, serializePhone } from './phone-format.js';
+import { HTML_PROMPT } from './html-work.js';
+import { expandPrompt, macroContext } from './prompt-macros.js';
+import { shouldTrigger, promptRole, injectHistory } from './prompt-injection.js';
+import { storyMemory } from './story-memory.js';
+import { summaryInstruction } from './summary-protocol.js';
+import { stripMixedForHistory } from './mixed-format.js';
+
+const string = value => typeof value === 'string' ? value : '';
+
+// 网页卡片规则：只允许安全、可离线渲染的片段，不允许脚本与外部依赖。
+const CARD_RULES = `【网页卡片】需要一张独立的小界面、信息卡、票根、弹窗或界面截图式片段时，用 <瞬息-html> 与 </瞬息-html> 包住一段可直接显示的 HTML 片段：
+- 只写片段，不写 <!doctype>、<html>、<head>、<body>；样式写成 <style> 放在同一块里，选择器尽量用类名。
+- 不写 <script>、事件属性（onclick 等）、外链 JS、iframe、表单提交、localStorage 或任何网络请求；卡片是静态装饰，交互不会被触发。
+- 卡片会自动适配阅读区宽度并自适应高度；图片只用完整 HTTP(S) 直链，拿不准就不放图，禁止编造链接。
+- 文字要与当前剧情一致，短小精致，建议 40 行以内；同一节最多 3 张卡片，宁少勿多，不要为了炫技插入。`;
+
+export function mixedPrompt(library = []) {
+  return `【混合番外】这一节可以在正文、小手机消息、网页卡片三种内容之间自由切换，写到哪里合适就用哪种，不要为了凑格式强行插入，也不要三种都出现。
+1）正文：直接写自然段落，就是默认形式。发言使用成对引号；按文意可用 **加粗**、*斜体*、~~删除线~~，不输出章节编号、创作说明或代码围栏。
+2）小手机：需要聊天、短信、通话、转账、表情包等即时通讯场景时，按下面的小手机格式写，整段包在 <小手机> 与 </小手机> 之间；一块结束时务必闭合，之后可以继续写正文。
+3）网页卡片：需要一张小界面／信息卡时按下面规则写，整段包在 <瞬息-html> 与 </瞬息-html> 之间；同样必须先闭合再继续写正文。
+三种内容按时间顺序连续推进同一个故事，不要在正文里重复小手机或卡片里已经写明的内容。
+
+${phonePrompt(library)}
+
+${CARD_RULES}`;
+}
+
+export const expand = expandPrompt;
+function matchesKey(key, corpus, sensitive = false, whole = false) {
+  key = string(key);
+  if (!key) return false;
+  if (/^\/.+\/[a-z]*$/.test(key)) {
+    const last = key.lastIndexOf('/');
+    try { return new RegExp(key.slice(1, last), key.slice(last + 1).replace(/[gy]/g, '')).test(corpus); }
+    catch { return false; }
+  }
+  const needle = sensitive ? key : key.toLocaleLowerCase();
+  const haystack = sensitive ? corpus : corpus.toLocaleLowerCase();
+  if (!whole) return haystack.includes(needle);
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`, 'u').test(haystack);
+}
+export function selectWorldEntries(books, corpus, snapshot, macros = macroContext(), generationType = 'normal') {
+  const selected = [];
+  for (const book of books || []) for (const entry of Object.values(book.entries || {})) {
+    if (entry.disable || !shouldTrigger(entry.triggers, generationType)) continue;
+    const name = entry.comment || `条目 ${entry.uid}`;
+    if (entry.sticky || entry.cooldown || entry.delay || entry.group || entry.vectorized || entry.scanDepth != null || entry.delayUntilRecursion) {
+      macros.warnings.add(`世界书「${book.name} / ${name}」使用复杂触发设置；本次按独立番外的常驻／关键词匹配取材，不复用正文的计时、分组、扫描深度或向量状态。`);
+    }
+    if (entry.useProbability && Number(entry.probability) < 100 && Math.random() * 100 >= Math.max(0, Number(entry.probability))) continue;
+    const searchCorpus = [corpus, entry.matchCharacterDescription ? snapshot.character?.description : '', entry.matchCharacterPersonality ? snapshot.character?.personality : '', entry.matchScenario ? snapshot.character?.scenario : '', entry.matchPersonaDescription ? snapshot.persona?.description : ''].filter(Boolean).join('\n');
+    let active = entry.constant === true;
+    if (!active) {
+      const keys = Array.isArray(entry.key) ? entry.key : [];
+      active = keys.some(key => matchesKey(expand(key, snapshot, macros), searchCorpus, entry.caseSensitive === true, entry.matchWholeWords === true));
+      const secondary = Array.isArray(entry.keysecondary) ? entry.keysecondary : [];
+      if (active && entry.selective && secondary.length) {
+        const checks = secondary.map(key => matchesKey(expand(key, snapshot, macros), searchCorpus, entry.caseSensitive === true, entry.matchWholeWords === true));
+        const logic = Number(entry.selectiveLogic || 0);
+        active = logic === 0 ? checks.some(Boolean) : logic === 1 ? !checks.every(Boolean) : logic === 2 ? !checks.some(Boolean) : logic === 3 ? checks.every(Boolean) : false;
+      }
+    }
+    if (active) {
+      let position = Number(entry.position || 0);
+      if ([2, 3].includes(position)) {
+        macros.warnings.add(`世界书「${name}」位于作者注释附近；独立番外没有正文作者注释，已放入番外前文深度位置。`);
+        position = 4;
+      } else if (![0, 1, 4, 5, 6].includes(position)) {
+        macros.warnings.add(`世界书「${name}」的扩展插入位置在番外中按角色后资料提供。`);
+        position = 1;
+      }
+      selected.push({ content: expand(entry.content, snapshot, macros), position, order: Number(entry.order || 0), depth: Number(entry.depth ?? 4), role: ['system', 'user', 'assistant'][Number(entry.role || 0)] || 'system' });
+    }
+  }
+  return selected.sort((a, b) => b.order - a.order);
+}
+export function buildMessages({ snapshot, prompt, mode, chapters = [], instruction = '', words = 5000, targetMessages = 50, summary = null, summaries = [], summaryPlan = null, stickers = [], allowRetract = false, maxInputChars = 60000 }) {
+  if (!snapshot) throw new Error('这篇番外缺少人物资料，请重新选择资料后创建。');
+  const macros = macroContext();
+  const c = snapshot.character || {}, u = snapshot.persona || {};
+  const reference = chapters.map(chapter => chapter.mode === 'phone' ? { ...chapter, content: serializePhone(parsePhoneReport(chapter.content, { character: snapshot.character?.name, persona: snapshot.persona?.name }).messages) } : chapter.mode === 'mixed' ? { ...chapter, content: stripMixedForHistory(chapter.content) } : chapter);
+  const memory = storyMemory({ chapters: reference, summaries: summary ? [...summaries, summary] : summaries, recentCount: summaryPlan ? 9 : 2, budget: summaryPlan ? 200000 : 60000 });
+  const initial = expand(prompt, snapshot, macros);
+  const continuation = expand(instruction, snapshot, macros);
+  const originalContext = Array.isArray(snapshot.context) ? snapshot.context : [];
+  const corpus = [initial, ...originalContext.map(m => m.content), ...memory.messages.map(m => m.content), continuation].join('\n');
+  const generationType = chapters.length ? 'continue' : 'normal';
+  const entries = selectWorldEntries(snapshot.books, corpus, snapshot, macros, generationType);
+  const before = entries.filter(e => e.position === 0).map(e => e.content).join('\n\n');
+  const after = entries.filter(e => e.position === 1).map(e => e.content).join('\n\n');
+  const history = [];
+  for (const message of originalContext) { if (['user','assistant'].includes(message.role) && typeof message.content==='string') history.push({role:message.role,content:message.content}); }
+  history.push({ role: 'user', content: `番外要求：\n${initial}` });
+  history.push(...memory.messages);
+  if (memory.clipped) macros.warnings.add('前情已按预算节选；完整正文和摘要仍保留在资料库中。');
+  const blocks = {
+    charDescription: expand(c.description, snapshot, macros), charPersonality: expand(c.personality, snapshot, macros), scenario: expand(c.scenario, snapshot, macros),
+    personaDescription: expand(u.description, snapshot, macros), dialogueExamples: [entries.filter(e => e.position === 5).map(e => e.content).join('\n'), expand(c.mes_example, snapshot, macros), entries.filter(e => e.position === 6).map(e => e.content).join('\n')].filter(Boolean).join('\n\n'), worldInfoBefore: before, worldInfoAfter: after,
+  };
+  const messages = [{ role: 'system', content: `当前角色：${c.name || '角色'}。当前用户人物：${u.name || '我'}。` }];
+  const preset = snapshot.preset;
+  let historyAdded = false;
+  const injections = entries.filter(e => e.position === 4);
+  const historySlot = { history: true }; 
+  if (preset?.prompts?.length) {
+    const order = preset.prompt_order?.find(o => String(o.character_id) === String(snapshot.characterIndex))
+      || preset.prompt_order?.find(o => Number(o.character_id) === 100001)
+      || preset.prompt_order?.find(o => Number(o.character_id) === 100000)
+      || preset.prompt_order?.[0];
+    const sequence = order?.order || preset.prompts.map(p => ({ identifier: p.identifier, enabled: p.enabled !== false }));
+    for (const item of sequence) {
+      if (!item.enabled) continue;
+      const p = preset.prompts.find(p => p.identifier === item.identifier);
+      if (!p) continue;
+      if (!shouldTrigger(p.injection_trigger, generationType)) continue;
+      if (p.marker && p.identifier === 'chatHistory') {
+        if (!historyAdded) { messages.push(historySlot); historyAdded = true; }
+        continue;
+      }
+      let content;
+      if (p.marker && Object.hasOwn(blocks, p.identifier)) content = blocks[p.identifier];
+      else if (p.content) content = expand(p.content, snapshot, macros);
+      else if (p.marker) { macros.warnings.add('预设占位项「' + (p.name || p.identifier) + '」没有可读取的内容，本次略过该空项。'); continue; }
+      if (!content?.trim()) continue;
+      const role = promptRole(p.role);
+      if (Number(p.injection_position) === 1) {
+        injections.push({ content, role, depth: p.injection_depth ?? 4, order: p.injection_order ?? 100 });
+      } else messages.push({ role, content });
+    }
+  } else {
+    for (const key of ['worldInfoBefore', 'charDescription', 'charPersonality', 'scenario', 'personaDescription', 'dialogueExamples', 'worldInfoAfter']) {
+      if (blocks[key]) messages.push({ role: 'system', content: blocks[key] });
+    }
+    if (c.system_prompt) messages.push({ role: 'system', content: expand(c.system_prompt, snapshot, macros) });
+  }
+  // Custom presets sometimes omit native material slots entirely. Fill those
+  // missing slots without re-enabling a declared/disabled marker or duplicating macros.
+  if(preset?.prompts?.length){
+    const declared=new Set(preset.prompts.filter(p=>p.marker).map(p=>p.identifier));
+    const existing=[...messages.filter(m=>!m.history),...injections].map(m=>m.content||'').join('\n');
+    const missing=['worldInfoBefore','charDescription','charPersonality','scenario','personaDescription','dialogueExamples','worldInfoAfter']
+      .filter(key=>!declared.has(key)&&blocks[key]?.trim()&&!existing.includes(blocks[key]))
+      .map(key=>({role:'system',content:blocks[key]}));
+    const position=historyAdded?messages.indexOf(historySlot):messages.length;
+    messages.splice(position,0,...missing);
+  }
+  const injectedHistory = injectHistory(history, injections);
+  if (historyAdded) messages.splice(messages.indexOf(historySlot), 1, ...injectedHistory);
+  else messages.push(...injectedHistory);
+  if (mode === 'html' && chapters.length) throw new Error('HTML 作品不支持续写。');
+  const format = mode === 'html' ? HTML_PROMPT : mode === 'phone'
+    ? phonePrompt(stickers, allowRetract)
+    : mode === 'mixed' ? mixedPrompt(stickers)
+    : '输出可直接阅读的正文，用自然段落，不输出章节编号、创作说明或 HTML。发言使用成对引号；按文意可使用 **加粗**、*斜体*、~~删除线~~，无需刻意凑齐格式。';
+  const target = mode === 'phone' ? `至少 ${targetMessages} 条消息（按有效消息行计数，不按字数）` : `至少 ${words} 字`;
+  messages.push({ role: 'user', content: mode === 'html' ? format : chapters.length
+    ? `根据以上番外续写第 ${chapters.length + 1} 节，不重复上文。本节${target}。${continuation ? `本次要求：${continuation}` : '请自然接续。'}\n${format}`
+    : `现在生成第一节，${target}。\n${format}` });
+  if (mode !== 'phone' && !chapters.some(ch => ['prose', 'mixed'].includes(ch.mode || 'prose'))) messages.at(-1).content += '\n必须根据故事内容拟定一个独立标题，语气随番外氛围变化：喜剧可跳脱，酸涩或严肃故事用克制的标题。不得把用户指令当标题。' + (mode === 'html' ? '标题放在完整 HTML 的 <title> 中。' : '首行输出 <shunxi-title> 与 </shunxi-title> 这一对标签，标签内填写你实际拟定的标题，不得填占位词。换行后开始正文，正文不重复标题；标题不计入目标字数。');
+  messages.at(-1).content += summaryInstruction(summaryPlan);
+  const chars = messages.reduce((n, m) => n + m.content.length, 0);
+  if (chars > maxInputChars) throw new Error(`本次输入约 ${chars} 字符，超过设置的 ${maxInputChars} 字符上限。`);
+  Object.defineProperty(messages, 'warnings', { value: [...macros.warnings] });
+  return messages;
+}

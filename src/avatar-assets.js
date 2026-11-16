@@ -1,0 +1,54 @@
+import { sha256 } from './sync-integrity.js';
+
+// Storage/transport boundary only. Readers and legacy checksums still see the
+// original complete appearance, so old chapter snapshots never change style.
+const hashes = new Map();
+export function avatarHash(url) {
+  if (!hashes.has(url)) {
+    if (hashes.size >= 8) hashes.delete(hashes.keys().next().value);
+    hashes.set(url, sha256(url));
+  }
+  return hashes.get(url);
+}
+function visit(value, transform, context = '') {
+  if (Array.isArray(value)) return value.map(item => visit(item, transform, context));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
+    context === 'phoneAppearance' && ['userAvatar', 'charAvatar'].includes(key) || context === 'sticker' && key === 'url'
+      ? transform(item)
+      : visit(item, transform, key === 'phoneAppearance' ? key : ['stickers', 'stickerSnapshot', 'stickerDraft', 'stickerBatchDraft'].includes(key) || context === 'sticker' ? 'sticker' : '')]));
+}
+export function packAvatars(value, { knownHashes = null, knownUrls = null } = {}) {
+  const assets = new Map(), seen = new Map();
+  const data = visit(value, url => {
+    if (typeof url !== 'string' || !url.startsWith('data:image/')) return url;
+    const hash = seen.get(url) || knownUrls?.get(url) || avatarHash(url); seen.set(url, hash);
+    if (knownHashes && !knownHashes.has(hash)) return url;
+    assets.set(hash, url); return { avatar: hash };
+  });
+  return { data, assets };
+}
+export function avatarReferences(value) {
+  const refs = new Set();
+  visit(value, item => {
+    if (item && typeof item === 'object') {
+      if (Object.keys(item).length !== 1 || !/^[a-f0-9]{64}$/.test(item.avatar)) throw new Error('头像引用损坏，原资料未覆盖。');
+      refs.add(item.avatar);
+    }
+    return item;
+  });
+  return refs;
+}
+export function unpackAvatars(value, assets, { allowMissing = false, verifiedHashes = [] } = {}) {
+  const verified = new Set(verifiedHashes);
+  return visit(value, item => {
+    if (!item || typeof item !== 'object') return item;
+    const url = assets.get(item.avatar);
+    if (typeof url !== 'string' || (!verified.has(item.avatar) && avatarHash(url) !== item.avatar)) {
+      if(allowMissing)return '';
+      throw new Error('头像文件缺失或校验失败，原资料未覆盖。');
+    }
+    verified.add(item.avatar);
+    return url;
+  });
+}

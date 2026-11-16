@@ -1,0 +1,296 @@
+# 酒馆原生接口与兼容范围
+
+核对基线：SillyTavern 官方仓库 **1.18.0 tag**，2026-09-20 再次读取版本源码核对。使用 `SillyTavern.getContext()`，没有引入 Tavern Helper API。
+
+| 功能 | 原生接口 | 源码 |
+| --- | --- | --- |
+| 初始化与账号命名空间 | APP_READY、accountStorage | [st-context.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/st-context.js)、[events.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/events.js) |
+| 角色资料 | characters、characterId、unshallowCharacter | [script.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/script.js) |
+| Persona | powerUserSettings.personas、persona_descriptions、persona_description | [personas.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/personas.js) |
+| 世界书 | getWorldInfoNames、loadWorldInfo | [world-info.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/world-info.js) |
+| 预设 | getPresetManager('openai') | [preset-manager.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/preset-manager.js) |
+| 生成与流式响应 | ChatCompletionService.sendRequest、presetToGeneratePayload | [custom-request.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/custom-request.js) |
+| 自定义连接 | chat_completion_source: custom、custom_url、custom_include_headers | [chat-completions.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/src/endpoints/backends/chat-completions.js) |
+| 安装与更新检查 | manifest、/api/extensions/version | [extensions.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/extensions.js)、[服务端 extensions.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/src/endpoints/extensions.js) |
+
+## 请求隔离
+
+0.2.0 条目选择接口核对记录：
+
+| symbol | surface / applies_to | provenance | confidence / runtime_check |
+| --- | --- | --- | --- |
+| getPresetManager('openai').getAllPresets() | SillyTavern core / 1.18.0 | preset-manager.js:376，返回该类型全部预设名 string[] | high / 源码及模拟适配测试，真实酒馆待验收 |
+| getCompletionPresetByName(name) | SillyTavern core / 1.18.0 | preset-manager.js:750；从 prompts 和 prompt_order 读取子提示词与启用顺序 | high / 同上 |
+| getWorldInfoNames() | SillyTavern core / 1.18.0 | st-context.js:282；返回 world_names 的副本 | high / 同上 |
+| loadWorldInfo(name) | SillyTavern core / 1.18.0 | world-info.js:2036；返回包含 entries 的书数据 | high / 同上 |
+
+原生世界书列表在此接口中是扁平书名列表，没有另一个文件夹层。瞬息按「世界书 → 条目」两层展示全部书和可展开条目。预设范围为全部 Chat Completion 预设；Text Completion 指令模板不混入该列表。自定义勾选和文本放在瞬息设置中，仅应用到首次生成的资料快照。
+
+插件自己构造 messages，直接使用原生请求服务，不调用正文的 Generate，不把消息写入 chat，也不切换酒馆全局连接、Persona 或预设。角色资料补全可能使用酒馆已有的角色缓存。
+
+跟随模式读取 Chat Completion 配置，监听正文生成事件：正文忙时拒绝发起；本次请求期间正文启动则中止番外。独立模式始终指定 custom source、独立地址、模型和 Authorization 头，不借用主 custom key。请求经酒馆后端转发；后台／供应商限流仍可能影响并发。
+
+独立模式只提供 OpenAI Chat Completions 兼容接口，不直接适配原生 Claude Messages 或 Gemini REST 地址。
+
+## 资料快照与提示词
+
+0.4.0 面具读取继续使用 `getContext().name1` 与 `powerUserSettings.persona_description`，依据官方 1.18.0 的 [st-context.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/st-context.js) 和 [personas.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/personas.js#L580)。适用 SillyTavern core 1.18.0，源码可信度 high；模拟测试已覆盖当前面具切换后的重读，真实运行仍待验收。只读取宿主值，编辑保存到瞬息设置；不写宿主 Persona。
+
+0.6.0 删除输入 token 的设置与估算上限检查，旧备份中的 `maxInputTokens`／`maxInputChars` 不再生效。仍保留一百万字符的异常请求保护。模型实际上下文限制由供应商检查，返回的错误进入报错记录。
+
+流式开关核对于 2026-09-21，依据官方 1.18.0 的 [custom-request.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/custom-request.js)：
+
+| symbol | surface / applies_to | provenance | confidence / runtime_check |
+| --- | --- | --- | --- |
+| ChatCompletionService.sendRequest(data, extractData = true, signal = null) | SillyTavern core / 1.18.0 | 上述文件 ChatCompletionService.sendRequest；data.stream 为 true 时返回异步生成器工厂，false 时返回含 content 的完整对象；第二个参数是提取数据，不是流式开关 | high / 已核对官方版本源码；两种连接、两种传输的模拟请求及取消检查通过；真实 API 待验收 |
+| presetToGeneratePayload(preset, overridePreset, overridePayload) | SillyTavern core / 1.18.0 | 同文件；通过 overridePayload.stream 和 max_tokens 覆盖本次请求参数 | high / 同上 |
+
+`settings.stream` 默认 true，仅控制瞬息发出的请求，不修改酒馆主设置。独立连接直接设置 payload.stream，跟随连接通过 overridePayload 传递。非流式等待完整 content 返回后更新阅读内容，空回和取消仍走现有错误／停止流程；不暴露 reasoning。1.2.7 不再独立请求剧情总结。最大回复token 映射到 max_tokens，十节同答摘要临时加 1200、百节加 2800，最高 200000，不写回用户设置；连接测试为 32。实际模型／服务商上限仍以各连接为准。
+
+每篇首次生成保存角色、Persona、所选世界书、预设提示词及所选正文参考的快照。续写依据快照和参考章节构造 messages，不运行正文的变量脚本与世界书副作用。
+
+每篇的摘要存于 `story.summaries`。旧累计总结 `{ through, content }` 原样保留；1.2.7 新记录增加 `kind: 'segment' | 'century'` 和 `from`，对应独立十节／百节区间。摘要无 2000 字符截断（异常超过一百万字符时明确拒绝，不静默截断），和章节一起经既有数据库 3 分片事务保存、独立回读校验。续写按预算选择旧累计总结、分段摘要、大总结与近期正文，缺摘要不阻止生成。编辑或补足修改章节会使覆盖它的旧摘要失效。JSON／ZIP 备份和同步保留类型、区间、完整内容；旧快照保持原校验形状，新摘要需要同步两端均为 1.2.7。没有改变底层保存／备份／同步容器格式。
+
+当前支持：
+
+1.2.8 新增两个可选的设置字段 `storyTagCatalog`、`scriptTagCatalog`，分别保留故事／剧本的独立标签目录。旧资料缺省时不添加字段，维持原同步校验形状；显式管理或保存标签后才记录目录。完整备份与现有同步的设置合并会保留目录，但没有新增删除传播或同步墓碑，删除仅作用本机；再次合并远端资料可能带回已删内容。同步带新标签目录的资料，各端需使用 1.2.8。
+
+1.3.0 只新增取值与可选字段，不改既有结构：章节 `mode` 多一个 `"mixed"`（正文／`<小手机>`／`<瞬息-html>` 三种内容在同一节内混合），设置多两个可选布尔 `followFont`、`followBackground`，两者缺省即「不写入」，旧同步校验形状不变；章节的 `readingTheme` 与原有的主题快照结构一致，`tavern-prose` 这类跟随酒馆的样式在生成时已冻结为普通主题对象，旧版本读到只当普通主题。混合章节的历史与摘要请求会把卡片换成一句占位说明，避免整段 HTML 进入上下文。数据库版本（`SCHEMA = 1`）与保存／备份／同步容器格式不变。
+
+图床入口只解析用户粘贴的文本并用浏览器图片加载验证，保存原 HTTP(S) 链接，不调用生成 API、不上传到第三方新服务。已确认的本地上传格式与大小限制不变；图床和本地批次共用既有输入日志和资源提交，不改数据库或资源回收。
+
+- 基础人物字段和 `{{char}}`、`{{user}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{persona}}`、`{{mesExamples}}` 等基础替换。
+- 世界书常驻、主关键词、四种次关键词组合、大小写／完整单词匹配、关键词正则。
+- 世界书角色前／角色后／聊天深度位置和基础角色类型；按条目顺序排列。
+- Chat Completion 预设的顺序提示词与人物、世界书、聊天历史标记；新生成／续写触发条件，以及相对番外前文的深度注入。
+- 预设的 temperature、top_p、frequency_penalty、presence_penalty；输出上限由瞬息设置覆盖。
+
+支持世界书概率与生成类型筛选；复杂递归、sticky/cooldown/delay、分组竞争、向量检索和单条扫描深度采用独立番外的常驻／关键词匹配，兼容差异记载于本文件，不再直接阻断生成。作者注释位置映射到番外前文深度，扩展插槽映射到角色后资料。未实现完整脚本运行、正文变量继承、酒馆 token 预算、示例对话转换和供应商工具调用配置，不应把复杂动态角色卡当作完整兼容。
+
+**源码接口核对与模拟请求测试不等同于实机验收。** 官方接口后续版本、第三方分支、特殊供应商响应都需在真实环境验证。
+
+## 1.0.0 安装与更新核对
+
+2026-09-23 再次核对 SillyTavern 1.18.0 的 src/endpoints/extensions.js：POST /api/extensions/version 接收 extensionName、global，返回 isUpToDate、remoteUrl 等；当前适配器按账号／全局目录检查。原位更新使用酒馆扩展管理，服务端 /update 拉取当前 Git 分支。没有硬编码 GitHub 用户名。
+
+来源：https://github.com/SillyTavern/SillyTavern/blob/1.18.0/src/endpoints/extensions.js 。置信度：源码高；实机 Git 安装与远程更新尚待仓库发布后验收。
+
+
+## 1.0.2 原生接口核对（2026-09-23）
+
+- `isGenerating()`：SillyTavern core 1.18.0 `public/script.js` 导出，返回发送中／群聊生成状态。通过扩展入口相对路径加载核心模块；`GENERATION_STARTED(type, options, dryRun)` 在试算也触发，现忽略第三参数为真的事件。源码置信度高；本地模拟宿主验证不替代用户云端实机验证。
+- `#extensions_settings`：1.18.0 `public/index.html` 原生扩展设置容器；1.0.3 起改用原生 inline-drawer 结构与宿主箭头，不依赖酒馆助手。
+- `POST /api/backends/chat-completions/status`：1.18.0 `src/endpoints/backends/chat-completions.js`，custom_url 指定独立连接；custom_include_headers 显式传递独立 Authorization，secret_id 不引用主密钥，返回 data 数组中的 id 为模型。失败时酒馆可能不透传服务商原始状态，界面不虚构状态码。
+- 宏语法依据 1.18.0 `public/scripts/macros.js` 和 `variables.js`。独立 Map 仅实现当前支持的取值／赋值格式，不调用正文变量接口。不支持的宏或 EJS 按原文交给模型，不声称执行其动态逻辑。1.0.3 的深度和条件处理见下。
+- 数据：IndexedDB 完整资料库 + localStorage 即时输入恢复记录，按原 scope 隔离，带 revision/writer/sequence 防止旧保存覆盖较新的输入。API 密钥另存浏览器账号命名空间，不进入状态备份。
+
+## 1.0.3 提示词与原生抽屉核对（2026-09-24）
+
+| symbol | surface / applies_to | provenance | confidence / runtime_check |
+| --- | --- | --- | --- |
+| inline-drawer / inline-drawer-toggle / inline-drawer-content、fa-circle-chevron-down | SillyTavern core 1.18.0 | [index.html](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/index.html)、[script.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/script.js) 的 delegated click handler | high / 使用宿主原生展开事件与样式；本地浏览器模拟检查，用户实际主题待验收 |
+| injection_position、injection_depth、injection_order、injection_trigger | SillyTavern core 1.18.0 | [PromptManager.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/PromptManager.js) 的 INJECTION_POSITION、shouldTrigger；[openai.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/openai.js) 的 populateInjections | high / 位置 0 顺序、1 深度；normal 新生成、continue 续写；无触发条件始终启用。单元测试与模拟请求覆盖 |
+| world_info_position、triggers、useProbability | SillyTavern core 1.18.0 | [world-info.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/world-info.js) | high / 0/1 角色前后、4 深度、5/6 示例前后；2/3/7 按上述映射处理，复杂激活规则不冒充完整宿主执行 |
+
+深度按独立番外参考消息倒数计算，过深时放在参考开头；同位置按 order 从高到低排列，保留消息角色。不会插入或修改正文聊天。最后仍追加本次番外格式与续写要求。未知的空标记略过，不阻断请求。以上通过本地模拟宿主验证，尚未连接用户云端真实 API。
+
+## 1.0.4 生成与阅读行为
+
+首轮要求正文输出独立标题标记、小手机顶层 title、HTML 的 title；缺少标题时使用小请求根据作品拟题，不截取用户指令。标题不计入字数。补写按当前章节实际字数／条数推进，成功达到目标才标记完整；空回与可识别的传输故障最多连续重试两次，HTTP 429 等真实接口错误保留并暂停。无进展或单次 50 次请求保护时暂停，支持刷新后继续补足同一节。
+
+未点击保存的作品依然写入本地草稿与备份，但不进入分类或按分类导出。生成和美化页面切换后保留已连接的阅读 iframe；公共图片／字体按需无凭据读取并缓存在独立 IndexedDB，不进入作品备份。缓存最多约 64 MB，有效期 7 天。跨域失败等情况仍使用原资源地址，不绕过资源服务器的访问控制。
+
+## 1.0.5 正则过滤核实（历史记录，接入见 1.0.8）
+
+原生前端扩展可以用 JavaScript 正则处理自己收到的文本，不需要 Tavern Helper。官方 Regex 文档也说明了匹配替换、AI Response／Reasoning 范围和仅显示／出站提示词等选项：https://docs.sillytavern.app/extensions/regex/ 。
+
+瞬息通过自己的生成与隔离阅读流程运行，因此不能假定酒馆聊天显示正则会自动处理瞬息的 API 回复或 iframe。若后续启用 think 过滤，应在瞬息自己的响应处理层接入；明确仅隐藏显示还是也从保存、统计、续写上下文中排除，并处理流式未闭合标签。本轮只验证可行性，不调用或修改宿主正则，不新增过滤开关。此结论不等于已在用户 1.18.0 云端实测宿主 regex 内部函数。
+
+## 1.0.6 小手机独立匹配框架
+
+使用本扩展内置 JavaScript 标签匹配与消息解析，不导入或修改酒馆正则设置，也不需要酒馆助手。优先提取 <小手机>...</小手机>；外部 think/cot 即使未闭合也不占用手机框架。缺失手机闭合标签时读取至后续 think/cot 开始或回复结尾。旧无标签格式仍兼容，完整 think/cot 和末尾未闭合思考块排除。只影响小手机读取，正文／HTML 不开启通用思维链过滤。
+
+清理后的有效消息用于渲染、计数、续写和总结；sourceContent 保留原始回复。失败草稿可能保留原始片段，继续补足时重新解析消息；不执行模型提供的 HTML/JS。匹配结果通过转义的固定组件渲染。
+
+## 1.0.7 预设正则只读核实（历史记录，接入见下节）
+
+目标版本为用户提供的 SillyTavern 1.18.0，使用原生扩展上下文，无 Tavern Helper 依赖。
+
+| symbol | surface / applies_to | provenance | confidence / runtime_check |
+| --- | --- | --- | --- |
+| getScriptsByType(SCRIPT_TYPES.PRESET, { allowedOnly: true }) | core Regex extension 1.18.0 | [regex/engine.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/extensions/regex/engine.js) | high：读取当前预设的 regex_scripts，并可检查该预设启用授权；本轮只读源码，未调用用户运行环境 |
+| getPresetManager('openai').readPresetExtensionField({ name, path: 'regex_scripts' }) | core preset manager 1.18.0 | [preset-manager.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/preset-manager.js) | high：可按指定名称读取预设附带正则，不必切换当前预设；当前预设读取设置对象，其他预设读取保存的扩展字段。用户云端能力探测仍待实施 |
+| getRegexedString(rawString, placement, { isMarkdown, isPrompt, isEdit, depth }) | core Regex extension 1.18.0 | [regex/engine.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/extensions/regex/engine.js) | high：会读取当前宿主全局、当前预设及角色规则，并按 placement、markdownOnly、promptOnly、disabled、深度等条件处理；不能直接当作“瞬息选定预设的过滤器” |
+
+结论：能读取预设内实际附带的正则，包括用户额外配置的草稿／作家对话匹配规则，但预设文本只有“输出草稿”等要求时，无法凭空推导对应过滤规则。读取、允许使用、实际匹配成功是三件不同的事。后续若接入，应只在瞬息的阅读副本上运行选定范围内的规则，尊重禁用与适用范围；不能清理覆盖保存文本，不写回宿主规则，也不能假定酒馆当前预设与瞬息选定预设相同。本轮未增加任何宿主正则调用或修改。
+
+现有过滤范围：小手机优先读取 `<小手机>` 块，外部内容不参与消息显示；无该块时兼容旧消息格式并排除 think／cot。区块内仍只识别约定的消息类型，语音转文字会去掉括号／星号动作标记。未实现任意命名的草稿／作家对话规则，正文／HTML 也没有通用思考过滤。
+
+编辑界面只显示一个完整文本框。生成回复原文可编辑；旧无标签的分轮回复增加小手机边界以便与后续标签格式合并。保存编辑不重新序列化或删掉其他文本，原文进入持久化与备份，消息解析用于阅读、计数及现有的手机续写／总结引用。导入阅读主题只改变 CSS，不改变这条保存规则。
+
+## 1.0.8 所选预设正则与正文阅读副本
+
+用户已明确要求接入。通过 `getPresetManager('openai').readPresetExtensionField({name, path: 'regex_scripts'})` 读取瞬息所选预设；选“使用当前已保存预设”才采用宿主当前名称，选“不采用预设”返回空列表。不混入全局或角色正则，不调用会汇总这些规则的 `getRegexedString`，不切换预设、不写回宿主。接口缺失时仅兼容读取该预设的 `extensions.regex_scripts` 字段。
+
+多选列表按预设保存选择与本地编辑。首次默认选择源数据中启用、适用于 AI 回复且非仅提示词的规则；用户可主动勾选其他条目，只作为瞬息正文显示规则使用。源 placement、markdownOnly、promptOnly、runOnEdit、深度等在详情里保留为来源信息，不复刻宿主聊天楼层、提示词处理及全局启用授权逻辑。选择规则不会改变发给模型的消息。
+
+正文阅读先移除大小写不敏感的 think／thinking／cot 标签块和多行 HTML 注释，再顺序匹配所选正则。未闭合的默认思考／注释块隐藏至结尾。支持裸表达式和 /pattern/flags、编号与命名捕获、$0、$&、{{match}}、trimStrings；宏只支持 char、user、newline、noop，并处理 substituteRegex 的替换／转义模式。不执行 EJS、变量脚本或其他未知宏；不声称完整兼容复杂预设生态。无效规则只记录并显示错误，其他规则与原文保留。
+
+正则替换产生的 HTML 用 sanitize-html 白名单清理，CSS 经 css-tree 检查并限定到各自 `.preset-markup[data-regex-block]`；支持常见文首卡片、图片、字体和布局，不执行 JavaScript、事件处理器、iframe、表单或外部 CSS 导入。模型未经过规则转换的 HTML 仍转义成文字。阅读 iframe 和独立正文导出均使用相同的无脚本内容安全策略。第三方依赖已内置，不需酒馆服务器安装 npm 包；本地重建依赖需 Node 22.12 及以上。
+
+正文 sourceContent 保留完整生成回复（含标题标签、草稿与思考），正文编辑保存后 content 直接保存完整输入，显示由规则派生，过滤不改持久化或备份。现有生成字数／续写／总结逻辑未改为“过滤后内容”。章节保存 readingRegex 快照，后续改规则不重写旧作品；升级前已丢失的原文无法补回。
+
+小手机不应用正文预设正则；存在 <小手机> 区块时只解析区块内消息，外部任意 XML 不显示。旧无包裹行／JSON 兼容，但外围 XML 区块不当成消息；消息字段里的字面标签保留为转义文字。HTML 模式维持原隔离运行方式，不加入正文默认过滤。
+
+验证：单元测试覆盖原生读取接口参数、规则选择／修改、HTML 清理、捕获替换、默认过滤、原文／快照／备份及模式隔离；本地浏览器模拟宿主覆盖原生入口和生成。未连接用户云端真实预设或供应商，不能将模拟验证当作云端 API 验收。
+
+## 1.0.9 当前角色资料
+
+基于 SillyTavern 1.18.0 原生接口，无酒馆助手。读取前用 getContext().unshallowCharacter(String(characterId)) 补齐角色数据，按 avatar 校验异步读取期间是否换角。读取完成后若角色已切换，丢弃旧结果，避免旧世界书或正则覆盖新角色。
+
+| symbol / field | provenance | confidence / runtime_check |
+| --- | --- | --- |
+| characters[characterId].data.extensions.regex_scripts | [regex/engine.js 1.18.0](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/extensions/regex/engine.js) getScriptsByType(SCOPED) | high；模拟读取、切换、原文保留已测 |
+| data.extensions.world、world_info.charLore[].extraBooks、getCharaFilename(characterId) | [world-info.js 1.18.0](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/world-info.js) getCharacterLore | high；主／附加关联与去重已测 |
+| eventTypes.CHAT_CHANGED、CHARACTER_EDITED、WORLDINFO_SETTINGS_UPDATED | [events.js 1.18.0](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/events.js)；通过上下文 eventSource 订阅 | high；切换事件和卸载清理已测 |
+
+附加世界书状态从原生 scripts/world-info.js 的导出读取，角色文件名通过 scripts/utils.js 的 getCharaFilename 获取，不写回这些模块。仅自动选择已在原生世界书列表中的有效绑定；尚未导入酒馆的卡片内嵌 character_book 不在本轮自动导入范围，不创建或改动酒馆源数据。
+
+世界书选择按角色 avatar 存储 selected／linked，首次进入自动选中关联，后续刷新保留手动取消；新增关联补选，已解除关联移除。初次切换到另一角色保留手动附加的非绑定书，不携带上一角色的自动绑定；再次进入角色恢复该角色选择。未打开角色时不会凭空选择书或规则。
+
+角色正则与预设正则采用独立设置，名称或规则 ID 相同不会混用编辑。阅读依次执行默认过滤→预设正则→角色正则，仅用于正文。角色规则沿用 1.0.8 的 HTML／CSS、宏和原文保留边界，不运行宿主脚本或修改宿主规则授权。角色与规则同时存入资料快照；续写使用原作品角色数据，继续补足沿用该节规则，旧作品不因换角改变。
+
+本轮通过本地宿主模拟，未连接用户实际云端 API。
+
+## 1.0.10 正文脚本卡片（用户后续授权）
+
+以下覆盖 1.0.8／1.0.9 正文“不执行脚本”的旧边界：所选预设与角色正则中原有的内联经典 JavaScript 可在独立卡片 iframe 内运行。先从替换模板提取脚本并赋予随机标记，再插入模型捕获内容并清理 HTML，最后只恢复这些已登记的脚本。模型原文中的 script、事件处理器、外部 iframe 不被授权。模板可把 $1 放在 template 等数据节点，脚本通过 document.currentScript、previousElementSibling、querySelector 与 DOM 构建卡片；可带 HTML 文档壳或代码围栏。
+
+每张脚本卡片仅 allow-scripts，不带 allow-same-origin；不能访问父页面、localStorage、酒馆上下文或酒馆助手。CSP 只允许带随机 nonce 的内联脚本，禁止 connect、嵌套 frame、object、form、base，不开放外部脚本、eval、内联事件处理器或外部 CSS import。直接在脚本代码中插入 $1／{{match}} 会跳过该脚本并显示说明，避免模型文本进入可执行代码；把数据放进模板节点。脚本新建的图片和字体仍可从 HTTP(S) 加载。
+
+外层阅读文档只执行固定的尺寸／错误转发桥接脚本，清理规则保持启用，脚本 CSP 使用 nonce。含卡片时该外层使用 allow-scripts allow-same-origin，避免 Chromium 双层不透明 srcdoc 的显示空白；不把任何规则脚本放入该层。子卡片仍是独立不透明源，postMessage 必须匹配卡片窗口与随机 ID；应用错误接收必须匹配阅读窗口与 token。尺寸上限 2400px，超出在卡片内滚动。脚本异常在卡片显示并写入报错记录，不弹顶部提示。无脚本正文／小手机保持原来的无脚本 iframe，HTML 作品模式保持原实现。
+
+卡片独立样式不能跨入正文或其他卡片，依赖 parent、Tavern Helper、宿主变量／网络调用的现成脚本不是完整兼容范围。脚本的逻辑与性能仍由作者负责，不保证任意脚本都能运行。卡片图片由浏览器按原地址读取，暂不经过正文公共资源缓存；不改变现有普通阅读资源缓存。独立分类导出包含同一沙盒与高度桥接，外部资源仍需网络。
+
+静态规则的文首与文末现在合并后再清理，可共同围住中间正文；同章节静态规则共享样式区块。非流式的生成及补写只显示等待状态，收到的原文照常用于恢复，完成后才进入阅读。
+
+跨设备仅核实：现有 LibraryStore 是每浏览器 IndexedDB（账号隔离），同一服务器／IP 并不共享其数据库。SillyTavern 1.18.0 有按账号持久化服务器设置的接口，可以据此设计独立资料存储与同步，但需另行实现拉取、写入和冲突处理；本版没有改动存储。参考官方 src/endpoints/settings.js 与 public/scripts/st-context.js。
+
+
+## 1.0.11 手动跨设备合并（用户后续授权）
+
+1.1.11 增加默认关闭、每设备单独开启的前台自动调度，详见文末；下述原生文件接口、合并及并发边界沿用。
+
+覆盖上面的仅调研状态。本版使用 SillyTavern 1.18.0 原生文件接口，不需要服务器插件、额外端口、外部同步服务或酒馆助手。PM2／Docker／命令行使用同一套 HTTP 接口，Docker 的数据持久挂载仍由部署配置决定。
+
+| symbol | surface / applies_to | provenance | confidence / runtime_check |
+| --- | --- | --- | --- |
+| POST /api/files/upload {name,data}，data 为 UTF-8 文件的 base64 | native core / 1.18.0 | [src/endpoints/files.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/src/endpoints/files.js) | high；源码核实与模拟浏览器测试，真实云端待用户验收 |
+| POST /api/files/verify {urls} | native core / 1.18.0 | 同上 | high；区分文件不存在与读取异常 |
+| GET /user/files/:filename | authenticated account / 1.18.0 | [src/users.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/src/users.js) | high；按当前登录账号目录读取 |
+| getContext().getRequestHeaders() | core context / 1.18.0 | [public/scripts/st-context.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/st-context.js) | high；POST 沿用原生认证／CSRF 头 |
+
+索引为 momenttheatre-sync-v1.json，独立快照为 momenttheatre-sync-随机标识.json，位于当前用户 user/files 目录。文件名严格限制，不接受外部地址或路径跳转，不调用删除接口。快照上限 50 MB，SHA-256 校验完整性（支持普通 HTTP，不依赖 crypto.subtle；不是加密或签名）。完整版本化结构检查防止标准化静默丢弃字段、实体或超长文本。
+
+上传：读取远端→三方合并→本地保存恢复快照及合并结果→上传独立快照→回读验证→重新检查索引→写索引→回读核验。下载只读取并合并到本机。最近合并基线留在本机元数据，不进入全量备份；恢复备份清除基线。原文、章节主题及规则快照、未保存作品均可同步；未提交章节编辑／表情表单不共享。
+
+原生接口只保证单次文件原子替换，没有 CAS 或跨设备锁。前后校验只能发现可观测竞争，最后写入窗口仍可能让索引指向最后上传者；双方独立快照和本机内容保留。请逐台同步，遇到同时上传后再次逐台合并。索引记录最近 5 个前序文件名，更早文件仍保留，不自动清理。维护恢复时可从该账号 user/files 取出快照中的 state 对象，存为 JSON 后通过恢复备份导入；先备份现有数据，不误删聊天附件。
+
+验证覆盖两端冲突、反复同步、删除与修改、空库、损坏文件、上传中断、索引竞争、事务中断与旧页面冲突。两个独立浏览器上下文模拟电脑／手机和原生接口；未连接用户真实云端，不能称为实机同步验收。
+
+
+## 1.0.12 连接测试
+
+仍通过原有 ChatCompletionService 和独立 custom 代理路径；无新增宿主 API。测试请求固定 stream:false、max_tokens:256，30 秒结束界面等待，不改变用户保存的生成参数。发送 AbortSignal，同时对宿主未响应取消提供超时结算；界面超时并不保证供应商立即停止计费。成功要求原有生成适配器返回有效内容，错误使用现有脱敏和报错记录。
+
+小手机只在可识别为消息的记录确实无效时告警；容错提取出全部消息不再单凭 recovered 标记报错。过滤只派生阅读内容，完整 sourceContent／编辑内容保留。正文预设与角色正则不会用于小手机。
+
+HTML 提取与提示词组织在 1.0.12 调整，详见 [HTML 模式](HTML-MODE.md) 和 [实际提示词结构](PROMPT-STRUCTURE.md)。只从完整原始回复派生渲染文档，编辑和备份保留原文。无新增宿主权限。
+
+本机资料位于当前网站来源的 IndexedDB → shunxi-library → accounts → 当前账号记录的 state.stories，不是扩展目录下的 JSON 文件。可在浏览器开发者工具的 Application／应用中查看；不要直接删除整个数据库或账号记录来清理一篇作品。零章节作品也能从分类打开后删除整篇。手动同步仍采用删除不传播策略，本机删除不清理已有服务器快照，之后合并可能恢复服务器仍保留的作品。
+
+## 1.0.13 HTML 过滤
+
+复用现有按名读取预设正则接口，无新宿主接口或权限。HTML 只使用当前选定的空替换预设规则，正文与小手机原有范围不变；细节见 HTML-MODE.md。表情更新在打开本机库后执行一次，不在同步规范化阶段迁移，旧版 1.0.12 的完整同步数据仍能通过校验。
+
+
+## 1.0.15 · SillyTavern 1.15～1.18
+
+2026-09-29：兼容目标扩展至 1.15.0、1.16.0、1.17.0、1.18.0，manifest 最低版本 1.15.0。不支持 1.14，也不承诺未核查的未来版本／修改版。仍是同一份原生扩展，无 Tavern Helper 或服务器插件依赖。
+
+| symbol / surface | applies_to | provenance | confidence / runtime_check |
+| --- | --- | --- | --- |
+| getContext().getWorldInfoNames() / core | 1.18.0 | [st-context.js](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/st-context.js) | high 源码；优先保留原路径，模拟回归，实机待验收 |
+| world_names / core ESM export | 1.15.0～1.17.0 | [1.15](https://github.com/SillyTavern/SillyTavern/blob/1c0e7ea9556afcc3ae55c888287dff67a6aa42fc/public/scripts/world-info.js)、[1.16](https://github.com/SillyTavern/SillyTavern/blob/e3b866b5d2bcc7fbaa889bb926fbb567cd1ed25b/public/scripts/world-info.js)、[1.17](https://github.com/SillyTavern/SillyTavern/blob/e3f41666c69db032e17e079fcddcf40cf47e8593/public/scripts/world-info.js) | high 源码；实时读取模块绑定并返回副本；实机待验收 |
+| isGenerating()、APP_READY、GENERATION_STARTED(type, options, dryRun) / core | 1.15～1.18 | 各版本 public/script.js、public/scripts/events.js、public/lib/eventemitter.js | high 源码；既有忙碌与 dry-run 处理不变 |
+| ChatCompletionService.presetToGeneratePayload(preset, overridePreset, overridePayload)、sendRequest(data, extractData, signal) / core | 1.15～1.18 | 各版本 public/scripts/custom-request.js；[1.15](https://github.com/SillyTavern/SillyTavern/blob/1.15.0/public/scripts/custom-request.js) | high 源码；沿用主／独立 API、流式／非流式和取消处理；未调用真实供应商 |
+| custom_include_headers / native backend | 1.15～1.18 | 各版本 src/endpoints/backends/chat-completions.js | high 源码；旧版不使用 secret_id，但显式 Authorization 在合并 headers 时覆盖宿主 custom 密钥；原请求不改 |
+| accountStorage、预设／角色 regex_scripts、角色世界书、files upload/verify/user files | 1.15～1.18 | 各版本 st-context.js、preset-manager.js、world-info.js、regex/engine.js、src/endpoints/files.js、src/users.js | high 源码；账号及存储作用域、请求与同步算法不变；真实部署待验收 |
+
+适配只在没有新版世界书名称函数时读取旧版模块；新版函数存在但报错／返回无效值时不吞错回退。每次读取都访问模块的当前 world_names，不能在初始化时解构并缓存旧数组。世界书目录和角色关联筛选共用入口。新版空列表不能回退为旧数据。
+
+1.14 缺少 isGenerating，且同名 presetToGeneratePayload 只有两个参数并仅转换 temperature，因此不通过降低声明或移除状态检查来伪装支持。
+
+验证分层：官方版本源码核查；真实 ESM 导入与模拟上下文单元测试；浏览器模拟宿主和 file:// 单文件预览。以上不等于启动四套官方酒馆或真实供应商 API 验收。低版本首次公测仍按 RUNTIME-CHECKLIST.md 检查。
+
+
+顶部安全区域仍遵循系统 env(safe-area-inset-*)，参考 [WebKit 官方说明](https://webkit.org/blog/7929/designing-websites-for-iphone-x/)。1.0.15 改为顶栏直接留白、显式固定弹窗位置及居中 SVG，不改宿主 viewport。此为依据反馈的布局修正，不宣称已确认具体 WebKit 缺陷或真机修复。
+
+
+## 1.0.16 · 悬浮入口收纳兼容
+
+surface：宿主页面普通 DOM 的唯一 button#shunxi-floating-launcher（class launcher shunxi-floating-ball）；父容器为 #shunxi-extension-root，使用命名 slot 显示。仅按钮暴露在普通 DOM，主体仍处在原 open ShadowRoot。无新增酒馆 API、Tavern Helper 依赖或收纳插件私有注册接口。
+
+provenance：用户提供的 -_jessica_2.json，2026-09-30 读取。自动扫描 document.querySelectorAll，按 fixed、尺寸、圆角筛选；手动通过 document.elementsFromPoint 及父元素找候选；ct/q/G/V 管理搬移、样式保护、恢复。第三方脚本不修改、不分发。文件 SHA256 与验证结果见 .artifacts/release-1.0.16/collector-result.json。
+
+圆形 border-radius 仅用于透明点击区域，视觉仍为莫比乌斯。样式全部限定到该唯一 ID，避免依赖原隔离层的样式继承；入口搬移后继续复用原点击闭包、busy/complete/unread 状态、日夜与隐藏设置。收纳位置由外部工具管理，瞬息通过按钮父节点判断是否暂停自身拖动与 placeLauncher；原父节点的窄范围 MutationObserver 负责释放后的坐标重设。卸载主动删除入口，即使入口已在收纳面板中。
+
+confidence：源码高；隔离浏览器使用附件原始识别／搬移／释放函数，模拟收纳 store、容器及基于稳定 ID 的恢复。没有加载完整酒馆助手／Vue 收纳 UI，也没有在真实用户酒馆联合验收，不宣称所有收纳插件都兼容。
+
+
+## 1.0.17 · TauriTavern 独立 API 认证
+
+- surface：原生宿主页面中的 `window.__TAURITAVERN__` 检测，仅为真时选择 TT 分支。不是通用 Tauri 检测，不依赖酒馆助手，也不改变跟随主 API。
+- applies_to：TT v2.3.0，提交 `a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375`。尚未在用户实际安装的 TT 与供应商上验收，不推断所有历史 TT 版本或受限发行版均支持。
+- provenance：[官方宿主检测](https://github.com/Darkatse/TauriTavern/blob/a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375/ExtensionDEV.md#L46-L65)；[模型列表／生成共用配置与密钥分支](https://github.com/Darkatse/TauriTavern/blob/a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375/src-tauri/crates/tt-application/src/services/chat_completion_service/config.rs#L87-L242)；[TT 自带请求凭据测试](https://github.com/Darkatse/TauriTavern/blob/a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375/src-tauri/crates/tt-application/src/services/chat_completion_service/config.rs#L1408-L1435)。
+- symbol/contract：仍使用原 `/api/backends/chat-completions/status` 和 `ChatCompletionService.sendRequest`，`chat_completion_source: custom`；仅 TT 把规范化独立地址放入 `reverse_proxy`、独立密钥放入 `proxy_password`、`custom_url` 置空，不传占位 `secret_id`。这是 TT 内部字段名，请求目标仍是用户填写的站点，不增加第三方代理。
+- TT 此分支直接使用本次请求的密码，不调用 secret repository；空密钥也不回退到主密钥。不创建、切换或删除宿主秘密记录，不改变瞬息密钥的存储方式。
+- 不采用“只删除 secret_id”：TT 会忽略值为空的额外请求头，可能让未填独立密钥的请求继承宿主 custom 密钥。使用请求内凭据分支避免该问题。
+- 非 TT 保留旧 `custom_url`、占位 `secret_id`、`custom_include_headers` 的值；跟随主 API 继续由宿主 `presetToGeneratePayload` 组装。
+- confidence：源码契约 high；runtime_check：`tests/tt-api.test.js` 覆盖原错误复现、模型列表、实际连接测试入口、流式／非流式生成、空密钥隔离、401／取消传播、原版精确参数回归及两种宿主的主 API 不变。测试使用模拟宿主，不能替代 TT 真机验收。
+
+## 1.1.5 小魔棒入口（2026-10-04）
+
+- symbol：`#extensionsMenu`、`extension_container`、`list-group-item flex-container flexGap5`、`extensionsMenuExtensionButton`。surface：SillyTavern core 原生菜单 DOM，非 Tavern Helper。applies_to：1.15.0、1.16.0、1.17.0、1.18.0 官方 tag。
+- provenance：各 tag 的 `public/scripts/templates/wandMenu.html`、`public/scripts/extensions.js` 中 `addExtensionsButtonAndMenu()`，以及 `public/scripts/extensions/caption/index.js` 中 `addSendPictureButton()`。逐版读取；[1.15.0 原生菜单实现](https://github.com/SillyTavern/SillyTavern/blob/1.15.0/public/scripts/extensions.js)、[1.18.0 原生菜单实现](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/extensions.js)、[1.18.0 官方条目示例](https://github.com/SillyTavern/SillyTavern/blob/1.18.0/public/scripts/extensions/caption/index.js)。
+- 瞬息新增独立容器，沿用宿主条目样式，直接调用自身 open()；不依赖悬浮球节点、可见性或位置。点击继续冒泡，由宿主原有 html 点击监听关闭菜单；不改宿主菜单内部显示状态。Enter／Space 转为同一点击流程。找不到容器时记录错误，不假装注册成功。卸载移除自身条目与监听。
+- confidence：high（四版源码一致）。runtime_check：Node 模拟 DOM 生命周期与事件测试；本轮浏览器工具阻止 file:// 页面访问，未完成真实酒馆点击验收。预览的菜单壳属于模拟宿主。
+- 音效依赖浏览器原生 AudioContext（兼容 webkitAudioContext），不增加酒馆 API 或酒馆助手依赖。用户点击生成时 resume，完成且未停止才播放一次，解码结果在当前实例复用，卸载关闭。静音、声音权限或移动后台挂起仍可能阻止声音；不会使生成与保存失败。
+
+## 1.1.6 启动生命周期
+
+沿用 1.1.5 已核对的原生小魔棒容器；没有新增酒馆 API。mount 先创建同一组入口和只读窗口，然后异步加载样式与资料库；资料成功读取、主题校验和既有迁移完成后才开放业务界面及同步。失败不创建替代空资料、不 checkpoint；错误经过原有 errorRecord 脱敏，只在本次启动窗口展示。重试共用在途请求，重新打开一个 Store；失败或卸载后的迟到 IndexedDB 连接会关闭，迟到升级会中止。
+
+两个入口均在资料库读取之前，但宿主 initialize 和扩展模块加载仍在 mount 之前。不能保证宿主初始化错误、脚本加载失败和任意第三方冲突都有入口。源码与 Node 模拟宿主／IndexedDB 验证不等于真实酒馆验收。
+
+
+## 1.1.11 使用期间自动同步
+
+不新增宿主接口，沿用已核对的 1.15～1.18 原生 files 路由；实际宿主与两端云服务器仍待验收。AutoSync 只在窗口打开、页面前台且在线时调度，打开／前台／online 触发约 8 秒空闲检查，成功保存后合并上传，前台每 60 秒检查；生成、编辑、弹窗、输入焦点、全屏、未提交本地输入日志期间延后。失败按 15 秒至 5 分钟退避；活动使在途自动任务的提交许可失效，不为自动网络请求锁住界面。手动任务仍保留原操作保护。
+
+autoSync 是可选的本机设置，缺失即关闭；sharedState 排除，applyShared 保留本机值，恢复备份保留当前设备开关。normalizeState 不向旧数据新增该字段，旧同步校验不变。元数据 lastRemote 记录已校验基线对应的清单，索引未变时复用本机基线，资料等同服务器时不发布新文件。资料库版本、远端格式和冲突／删除规则不变；服务器原生接口仍无 CAS，自动调度并不补足跨设备原子锁。
+
+
+## 1.2.0 本地版本与损坏隔离
+
+不新增酒馆／TT 接口、服务器插件或外部服务。IndexedDB 升级至 3，新建 libraryRecords／libraryVersions／libraryCommits；accounts 保留旧记录及小型 v3-head，avatars 沿用去重资源。存储 API 依据 IndexedDB durability 规范及 Chrome 官方持久化说明，严格写入选项受宿主支持约束；不支持选项的 TypeError 才退回默认创建，磁盘／容量／事务错误不降级重试。
+
+候选节点与清单写入后以新的读取事务检验结构、内容哈希及图片，再核对版本、候选标识、输入序列与同步代际，确认回执和当前／上一版本指针同事务提交。正常保留两份确认版本与一份同步前快照，回收仅本账号不可达节点，覆盖所有保留根和固定迁移档资源引用。128 Ki 字符文本块、64 子引用分页限制单条体积，候选去重资料总量保护上限 512 MiB；仍受设备容量、内存和额外迁移空间约束。
+
+逐项读取失败隔离作品／剧本，缺图仅在只读显示副本回退空图。当前不可用时检查上一确认版；指针缺失可由确认回执定位，但保持只读，不自动修复指针。不完整、回退、未确认候选、索引异常不回放输入日志、不保存、不做完整备份，手动与自动同步均受 health 门槛约束。原文及章节快照不因诊断重写。诊断仅版本、修订、状态、阶段数量和持久化支持，无账号 scope、标题、正文、资源地址或私人路径。
+
+旧 v1/v2 先完整解包，迁移候选验证成功才切换，保留旧主记录和旧同步前快照；旧输入日志跨迁移修订仍可恢复。失败不清库，保留原记录或只读旧状态；schema 升级后旧客户端 open(version=2) 会失败，应继续使用 1.2，不能直接降级。新逻辑备份和服务器快照不因内部改造换格式。
+
+参考：https://developer.chrome.com/blog/indexeddb-durability-mode-now-defaults-to-relaxed 与 https://www.w3.org/TR/IndexedDB/#transaction-durability 。fake-indexeddb 故障注入与 Chrome 隔离配置进程崩溃／重开已验证，均不证明 TT 真机断电、设备底层文件缺失可恢复。
+
+1.2 最终提交校验补充：集合顺序索引按版本独立保存，正文和资源继续去重；大字段映射分页。确认前也验证旧版独有记录／资源，已确认记录缺失时不悄悄从内存重建。主记录缺失但旧同步恢复记录仍在时只读回退，不视为新账号。普通保存不反复读取固定迁移档的大记录。
