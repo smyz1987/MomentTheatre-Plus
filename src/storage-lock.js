@@ -4,7 +4,7 @@ const factories=new WeakMap();
 export async function libraryWriteLock(owner,run,{ifAvailable=false}={}){
   let queues=factories.get(owner.factory);
   if(!queues){queues=new Map();factories.set(owner.factory,queues);}
-  const name=JSON.stringify(['shunxi-write-v1',owner.databaseName,owner.scope]);
+  const name=JSON.stringify(['shunxi-plus-write-v1',owner.databaseName,owner.scope]);
   if(ifAvailable&&queues.has(name))return {acquired:false};
   const previous=queues.get(name)||Promise.resolve();
   let release;const gate=new Promise(resolve=>{release=resolve;});

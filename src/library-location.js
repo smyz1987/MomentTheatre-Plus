@@ -1,12 +1,12 @@
 // Device/account-local routing only. Never included in backups or cloud snapshots.
 export class LibraryLocation {
   constructor(scope, storage = undefined) {
-    this.scope = scope; this.key = `shunxi:${scope}:active-library`;
+    this.scope = scope; this.key = `shunxi-plus:${scope}:active-library`;
     try { this.storage = storage === undefined ? globalThis.localStorage : storage; } catch { this.storage = null; }
   }
   route(generation) {
-    return generation ? { generation, scope: `${this.scope}:workspace:${generation}`, databaseName: `shunxi-library-workspace-${generation}` }
-      : { generation: 0, scope: this.scope, databaseName: 'shunxi-library' };
+    return generation ? { generation, scope: `${this.scope}:workspace:${generation}`, databaseName: `shunxi-plus-library-workspace-${generation}` }
+      : { generation: 0, scope: this.scope, databaseName: 'shunxi-plus-library' };
   }
   current() {
     const raw = this.storage?.getItem(this.key);

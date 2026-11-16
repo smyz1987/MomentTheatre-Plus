@@ -5,11 +5,11 @@ import {StorageCompute} from './storage-compute.js';
 import {libraryWriteLock} from './storage-lock.js';
 
 export class LibraryStore {
-  constructor(scope, indexedDBFactory = globalThis.indexedDB, journalStorage = null, { databaseName = 'shunxi-library', locks = globalThis.navigator?.locks } = {}) {
+  constructor(scope, indexedDBFactory = globalThis.indexedDB, journalStorage = null, { databaseName = 'shunxi-plus-library', locks = globalThis.navigator?.locks } = {}) {
     this.databaseName = databaseName;
     this.locks=locks;this.notices=new Set();
     this.knownAssets = new Set(); this.knownImages = new Map(); this.scope = scope; this.factory = indexedDBFactory; this.revision = 0; this.queue = Promise.resolve();
-    this.writer = id(); this.sequence = 0; this.persistedSequence = 0; this.syncEpoch = 0; this.activeSync = null; this.journalKey = `shunxi:${scope}:pending-input`;
+    this.writer = id(); this.sequence = 0; this.persistedSequence = 0; this.syncEpoch = 0; this.activeSync = null; this.journalKey = `shunxi-plus:${scope}:pending-input`;
     this.health={kind:'loading',writable:false,issues:[]};
     this.compute=new StorageCompute();
     try { this.journal = journalStorage || globalThis.localStorage; } catch { this.journal = null; }

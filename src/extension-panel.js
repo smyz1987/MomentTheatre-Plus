@@ -2,7 +2,7 @@
 export function mountExtensionPanel({ enabled, setEnabled, disabled = false }, container = document.getElementById('extensions_settings')) {
   if (!container) throw new Error('未找到酒馆扩展设置区域，请刷新页面后重试。');
   const panel = document.createElement('div');
-  panel.id = 'shunxi-native-settings';
+  panel.id = 'shunxi-plus-settings';
   panel.className = 'extension_container';
   const drawer = document.createElement('div'); drawer.className = 'inline-drawer';
   const heading = document.createElement('div');

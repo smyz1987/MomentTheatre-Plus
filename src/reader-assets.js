@@ -5,7 +5,7 @@ export class ReaderAssets {
   async database() {
     return this.db ||= new Promise(resolve => {
       try {
-        const request = indexedDB.open('shunxi-reading-assets', 1);
+        const request = indexedDB.open('shunxi-plus-reading-assets', 1);
         request.onupgradeneeded = () => request.result.createObjectStore('assets', { keyPath: 'url' });
         request.onsuccess = () => resolve(request.result);
         request.onerror = request.onblocked = () => resolve(null);

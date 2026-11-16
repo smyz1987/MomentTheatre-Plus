@@ -5,9 +5,9 @@ export function mountWandEntry({ open }, container = document.getElementById('ex
   if (!container) throw new Error('未找到酒馆小魔棒菜单，瞬息入口未能添加。');
   mounted.get(container)?.dispose();
   const wrapper = document.createElement('div');
-  wrapper.id = 'shunxi-wand-container'; wrapper.className = 'extension_container';
+  wrapper.id = 'shunxi-plus-wand-container'; wrapper.className = 'extension_container';
   const entry = document.createElement('div');
-  entry.id = 'shunxi-wand-entry'; entry.className = 'list-group-item flex-container flexGap5';
+  entry.id = 'shunxi-plus-wand-entry'; entry.className = 'list-group-item flex-container flexGap5';
   entry.setAttribute('role', 'button'); entry.tabIndex = 0;
   const icon = document.createElement('span');
   icon.className = 'fa-solid fa-infinity extensionsMenuExtensionButton'; icon.setAttribute('aria-hidden', 'true');

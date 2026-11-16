@@ -56,11 +56,11 @@ export class TavernHost {
     this.getContext = context; this.extensionUrl = extensionUrl; this.preview = false; this.mainBusy = false; this.disposers = [];
     const c = context();
     if (!c?.accountStorage || !c?.eventSource) throw new Error('需要 SillyTavern 1.15.0 起提供的原生扩展接口。');
-    const scopeKey = 'shunxi.library.scope.v1';
+    const scopeKey = 'shunxiplus.library.scope.v1';
     let scope = c.accountStorage.getItem(scopeKey);
     if (!scope) { scope = id(); c.accountStorage.setItem(scopeKey, scope); }
     this.scope = `tavern:${scope}`;
-    this.sessionKey = `shunxi:${scope}:api-key`;
+    this.sessionKey = `shunxi-plus:${scope}:api-key`;
     const on = (name, callback) => { if (!name) return; c.eventSource.on(name, callback); this.disposers.push(() => c.eventSource.removeListener(name, callback)); };
     // SillyTavern 1.15–1.18 emits GENERATION_STARTED during prompt-only dry runs too.
     on(c.eventTypes.GENERATION_STARTED, (_type, _options, dryRun) => { if (!dryRun) this.mainBusy = true; });

@@ -96,7 +96,7 @@ function windowIcon(kind) {
   return node;
 }
 export async function mount(host, { preview = false, stylesheet = null } = {}) {
-  const previous = document.getElementById('shunxi-extension-root');
+  const previous = document.getElementById('shunxi-plus-root');
   if (previous) return;
   let store = null, state = null, ready = false, loading = null, startupError = null, startupDiagnostic = null;
   let libraryAttempted = false;
@@ -126,13 +126,13 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     if (!readingWarnings.has(warning)) { readingWarnings.add(warning); report(new Error(warning), '正文正则'); }
   };
   const readerAssets = new ReaderAssets(), panes = new Map();
-  const root = el('div', { id: 'shunxi-extension-root', 'data-theme': 'day' });
+  const root = el('div', { id: 'shunxi-plus-root', 'data-theme': 'day' });
   const shadow = root.attachShadow({ mode: 'open' });
   // This small shell must work even when the main stylesheet or library cannot load.
   const startupStyle = el('style', {}, ':host{font:14px/1.7 system-ui;color:#282724}.shell{box-sizing:border-box;position:fixed;inset:0;width:min(960px,96vw);height:min(820px,94dvh);margin:auto;padding:calc(18px + env(safe-area-inset-top,0px)) 20px calc(18px + env(safe-area-inset-bottom,0px));border:0;background:#faf9f6;color:#282724;overflow:auto}.shell::backdrop{background:#0005}.topbar,.window-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{display:flex;align-items:center;gap:8px}.mark,.window-icon{display:inline-block;width:24px}.workspace{padding-top:24px}.startup-message{white-space:pre-wrap;overflow-wrap:anywhere}.startup-page button{padding:8px 20px}button{cursor:pointer}.tabs:empty{display:none}');
   shadow.append(startupStyle);
   window.addEventListener('message', onReaderMessage);
-  const launcher = button('', () => open(), { id: 'shunxi-floating-launcher', class: 'launcher shunxi-floating-ball', slot: 'launcher', 'data-theme': 'day', 'aria-label': '打开瞬息SmYz版', title: '瞬息SmYz版 · 拖动可移动，点击打开' });
+  const launcher = button('', () => open(), { id: 'shunxi-plus-launcher', class: 'launcher shunxi-floating-ball', slot: 'launcher', 'data-theme': 'day', 'aria-label': '打开瞬息SmYz版', title: '瞬息SmYz版 · 拖动可移动，点击打开' });
   launcher.append(mobius(), el('span', { class: 'unread', hidden: true }));
   const dialog = el('dialog', { class: 'shell', 'aria-label': '瞬息SmYz版' });
   const content = el('div', { class: 'workspace' });
