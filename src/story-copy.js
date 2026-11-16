@@ -11,25 +11,27 @@ const cleanProse = text => String(text || '')
   .replace(/\n{3,}/g, '\n\n')
   .trim();
 
-function senderLabel(message) {
+// 私聊里对方的名字来自角色卡、本人来自 Persona，取不到才退回「对方 / 你」。
+function senderLabel(message, names = {}) {
   if (message.sender === 'system') return '系统';
-  if (message.sender === 'user') return '你';
-  return message.speaker || message.groupMembers?.[message.sender] || '对方';
+  if (message.sender === 'user') return message.speaker || names.persona || '你';
+  return message.speaker || message.groupMembers?.[message.sender] || names.character || '对方';
 }
 
-function messageLine(message) {
+function messageLine(message, names = {}) {
+  const label = senderLabel(message, names);
   const body = String(message.text || '').trim();
   switch (message.type) {
-    case 'voice': return `${senderLabel(message)}：${body ? `（语音 ${message.duration || ''}）${body}` : `（语音 ${message.duration || ''}）`}`;
-    case 'image': return `${senderLabel(message)}：[图片]${body}`;
-    case 'sticker': return `${senderLabel(message)}：[表情]${body || message.sticker || ''}`;
-    case 'transfer': return `${senderLabel(message)}：[转账 ¥${message.amount || ''}]${body}`;
-    case 'location': return `${senderLabel(message)}：[定位]${message.title || body}${message.address ? ' · ' + message.address : ''}`;
-    case 'share': return `${senderLabel(message)}：[分享]${message.title || body}${message.source ? ' · ' + message.source : ''}`;
+    case 'voice': return `${label}：${body ? `（语音 ${message.duration || ''}）${body}` : `（语音 ${message.duration || ''}）`}`;
+    case 'image': return `${label}：[图片]${body}`;
+    case 'sticker': return `${label}：[表情]${body || message.sticker || ''}`;
+    case 'transfer': return `${label}：[转账 ¥${message.amount || ''}]${body}`;
+    case 'location': return `${label}：[定位]${message.title || body}${message.address ? ' · ' + message.address : ''}`;
+    case 'share': return `${label}：[分享]${message.title || body}${message.source ? ' · ' + message.source : ''}`;
     case 'call':
-    case 'video': return `${senderLabel(message)}：[${message.type === 'call' ? '语音' : '视频'}通话 ${message.status || ''}${message.duration ? ' ' + message.duration : ''}]`;
-    case 'retract': return `${senderLabel(message)}：撤回了一条消息${body ? `（原内容：${body}）` : ''}`;
-    default: return `${senderLabel(message)}：${body}`;
+    case 'video': return `${label}：[${message.type === 'call' ? '语音' : '视频'}通话 ${message.status || ''}${message.duration ? ' ' + message.duration : ''}]`;
+    case 'retract': return `${label}：撤回了一条消息${body ? `（原内容：${body}）` : ''}`;
+    default: return `${label}：${body}`;
   }
 }
 
@@ -37,12 +39,12 @@ function phonePlainText(content, story) {
   let messages = [];
   try { messages = parsePhoneReport(content, names(story)).messages || []; } catch { messages = []; }
   if (!messages.length) return cleanProse(content);
-  const lines = [];
+  const who = names(story), lines = [];
   let group = null;
   for (const message of messages) {
     const current = message.group || '';
     if (current !== group) { if (current) lines.push(`【${current}】`); group = current; }
-    lines.push(messageLine(message));
+    lines.push(messageLine(message, who));
   }
   return lines.join('\n').trim();
 }

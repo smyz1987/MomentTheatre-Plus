@@ -25,7 +25,7 @@ export function saveScriptDraft(state, draftId) {
   const previous = state.scripts.find(s => s.id === draft.scriptId);
   if (!previous && state.scripts.length >= 10000) throw new Error('剧本数量已达到上限，请先整理剧本库。');
   const script = { id: previous?.id || id(), title: draft.title.trim().slice(0, 120), content: draft.content,
-    tags: parseTags(draft.tagsText), mode: ['prose', 'phone', 'html'].includes(draft.mode) ? draft.mode : 'any',
+    tags: parseTags(draft.tagsText), mode: ['prose', 'mixed', 'phone', 'html'].includes(draft.mode) ? draft.mode : 'any',
     createdAt: previous?.createdAt || Date.now(), updatedAt: Date.now(), syncConflict: previous?.syncConflict === true };
   return { script, scripts: previous ? state.scripts.map(s => s.id === previous.id ? script : clone(s)) : [...clone(state.scripts), script],
     scriptDrafts: state.scriptDrafts.filter(d => d.id !== draftId).map(clone) };
@@ -46,7 +46,7 @@ export function parseScriptImport(raw) {
     if (typeof row.title !== 'string' || !row.title.trim() || row.title.length > 120) fail('title 需为 1～120 字的名称。');
     if (typeof row.content !== 'string' || !row.content.trim() || row.content.length > 1000000) fail('content 需为非空指令文本，最多 100 万字符。');
     if (!Array.isArray(row.tag) || row.tag.length > 100 || row.tag.some(t => typeof t !== 'string' || !t.trim() || t.length > 60)) fail('tag 需为标签字符串数组，每个标签 1～60 字，最多 100 个；无标签用 []。');
-    if (!['any', 'prose', 'phone', 'html'].includes(row.types)) fail('types 只能为 any、prose、phone 或 html。');
+    if (!['any', 'prose', 'mixed', 'phone', 'html'].includes(row.types)) fail('types 只能为 any、prose、mixed、phone 或 html。');
     return { title: row.title.trim(), content: row.content, tags: [...new Set(row.tag.map(t => t.trim()))], mode: row.types };
   });
 }

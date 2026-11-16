@@ -2,9 +2,11 @@ import { safeName } from './archive.js';
 import { cleanHtml } from './html-work.js';
 import { renderReader } from './reader.js';
 import { resolveChapterTheme } from './themes.js';
+import { storyPlainText } from './story-copy.js';
 
+// 混合章节也能出 TXT：正文取可读文字、小手机转对话行、卡片只留文字，与「复制·文本」同一份结果。
 export const canExportText = story => story.mode !== 'html' && story.chapters.length > 0 &&
-  story.chapters.every(ch => (ch.mode || story.mode) === 'prose');
+  story.chapters.every(ch => ['prose', 'mixed'].includes(ch.mode || story.mode));
 
 export function storyHtmlFile(state, story) {
   if (!story.chapters.length) throw new Error('这篇番外还没有可导出的章节。');
@@ -57,7 +59,13 @@ export function visibleChapterText(html, doc = globalThis.document) {
 }
 
 export async function storyTextFile(state, story, readText = visibleChapterText) {
-  if (!canExportText(story)) throw new Error('TXT 仅支持全篇都是正文的番外；含小手机的作品请导出 HTML。');
+  if (!canExportText(story)) throw new Error('TXT 仅支持正文或混合章节；纯小手机、HTML 作品请导出 HTML。');
+  // 混合章节不经过 DOM 取字，直接用与复制相同的纯文本结果，避免卡片里的样式和脚本混进 TXT。
+  if (story.chapters.some(ch => (ch.mode || story.mode) === 'mixed')) {
+    const content = storyPlainText(story, { all: true });
+    if (!content.trim()) throw new Error('这篇作品没有可导出的正文。');
+    return { name: safeName(story.title) + '.txt', content, type: 'text/plain;charset=utf-8' };
+  }
   const issues = [], warnings = [];
   const html = renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null,
     ch => resolveChapterTheme(state, story, ch), list => warnings.push(...list), { onEmpty: (_issue, chapter) => issues.push(chapter) });

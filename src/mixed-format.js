@@ -10,7 +10,8 @@ const HTML_CLOSE = /<\s*\/\s*(?:瞬息[-_]?html|shunxi[-_]?html|网页卡片|htm
 export const MIXED_MARKERS = { phone: '<小手机>', html: '<瞬息-html>' };
 export const MIXED_HTML_PLACEHOLDER = '（此处是一张已渲染的网页卡片，内容从略）';
 // 保护上限：一节里最多渲染这么多张卡片，避免长番外把阅读区拖慢。
-export const MIXED_CAPS = { blocks: 12, blockChars: 60000, totalHtmlChars: 240000 };
+// blocks 是单节上限；bookBlocks 是整篇一起渲染时的总量上限，防止几十节各自满额堆出上百个 iframe。
+export const MIXED_CAPS = { blocks: 12, blockChars: 60000, totalHtmlChars: 240000, bookBlocks: 60 };
 
 const countText = text => Array.from(String(text || '').replace(/[^\p{L}\p{N}]/gu, '')).length;
 const trimBlock = text => String(text || '').replace(/^\s*\n/, '').replace(/\n\s*$/, '');

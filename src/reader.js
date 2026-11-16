@@ -56,7 +56,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
   const phoneOnly = chapterIndex !== null && (chapters[0]?.mode || story.mode) === 'phone';
   const proseOnly = chapters.length > 0 && chapters.every(ch => (ch.mode || story.mode) === 'prose');
   const firstProse = chapters.findIndex(chapter => (chapter.mode || story.mode) !== 'phone');
-  const nonce = cardToken(); let cards = 0;
+  const nonce = cardToken(); let cards = 0, bookCards = 0;
   // 字体只在本次渲染里解析一次：默认跟随酒馆全局字体，主题写明具体字体时优先主题。
   const followFont = options.followFont !== false;
   // 「卡片脚本」默认关：关闭时模型写的脚本在渲染前就被剥掉；开启后只在不透明源沙箱里执行。
@@ -94,9 +94,11 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
         if (segment.kind === 'overflow') return `<p class="diagnostic">本节网页卡片已达 ${MIXED_CAPS.blocks} 张上限，后面的卡片只保留文字说明。</p>`;
         if (segment.kind === 'phone') return `<div class="mixed-phone">${mixedPhone(segment.text, chapter, n)}</div>`;
         if (segment.kind === 'html') {
+          // 整篇一起渲染时再设一道总量上限，避免几十节各自满额堆出上百个 iframe。
+          if (chapterIndex === null && bookCards >= MIXED_CAPS.bookBlocks) return `<p class="diagnostic">整篇网页卡片已达 ${MIXED_CAPS.bookBlocks} 张上限，后面的卡片只保留文字说明。</p>`;
           const html = sanitizeCardHtml(segment.text, { scripts: cardScripts });
           if (!html) return '';
-          cards++;
+          bookCards++; cards++;
           return `<div class="mixed-card">${cardFrame(html, '', [], nonce, cardToken(), '网页卡片', cardScripts ? { scripts: true } : {})}</div>`;
         }
         const rendered = renderRegexProse(segment.text, chapter.readingRegex, story.snapshot || {}, n, nonce);

@@ -437,7 +437,10 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
             saveEdit.textContent = '保存编辑'; if (!store.health.writable) applyReadOnly();
           }
         }), { class: 'primary' });
-        page.append(phoneChapter ? null : label('标题', titleInput), label(story.mode === 'html' ? 'HTML 源代码' : (story.chapters[chapterIndex].mode || story.mode) === 'phone' ? '小手机消息' : '章节内容', editor, phoneChapter ? '每行一条，如 [char|23:48|你好]；特殊消息保留类型与对应字段。' : ''), el('label', { class: 'check-row' }, complete, story.mode === 'html' ? '页面代码完整' : '这一节已完成'), el('div', { class: 'actions' }, saveEdit, cancelEdit));
+        const chapterMode = story.chapters[chapterIndex].mode || story.mode;
+        const hint = phoneChapter ? '每行一条，如 [char|23:48|你好]；特殊消息保留类型与对应字段。'
+          : chapterMode === 'mixed' ? '正文照常写；小手机用 <小手机> 开头、</小手机> 收尾；网页卡片用 <瞬息-html> 开头、</瞬息-html> 收尾。' : '';
+        page.append(phoneChapter ? null : label('标题', titleInput), label(story.mode === 'html' ? 'HTML 源代码' : chapterMode === 'phone' ? '小手机消息' : '章节内容', editor, hint), el('label', { class: 'check-row' }, complete, story.mode === 'html' ? '页面代码完整' : '这一节已完成'), el('div', { class: 'actions' }, saveEdit, cancelEdit));
       } else {
         const collapse = button('', () => fullscreen.exit(), { class: 'reading-toggle reader-collapse', 'aria-label': '退出全屏阅读', title: '退出全屏阅读' });
         collapse.innerHTML = readingIcon(true);
@@ -808,8 +811,14 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   // 外部导入：文本原样进入正文，源码按 <小手机> / <瞬息-html> 解析后混排渲染。
   function importExternal() {
     if (task || editing) return notify('请先结束生成或保存编辑。');
-    const file = el('input', { type: 'file', accept: '.txt,.md,.markdown,.text,.html,.htm,text/plain,text/markdown', hidden: true, onChange: e => { const picked = e.target.files?.[0]; name.textContent = picked ? picked.name : '未选择文件'; chosen = picked || null; } });
-    const name = el('small', { class: 'muted' }, '未选择文件');
+    const file = el('input', { type: 'file', accept: '.txt,.md,.markdown,.text,.html,.htm,text/plain,text/markdown', hidden: true, onChange: e => {
+      const picked = e.target.files?.[0];
+      fileName.textContent = picked ? picked.name : '未选择文件'; chosen = picked || null;
+      if (picked && !titleInput.value.trim()) titleInput.value = picked.name.replace(/\.(txt|md|markdown|text|html|htm)$/i, '').trim().slice(0, 120);
+    } });
+    const fileName = el('small', { class: 'muted' }, '未选择文件');
+    const titleInput = el('input', { value: '', maxlength: 120, placeholder: '导入后的标题，留空就用文件名' });
+    const paste = el('textarea', { rows: 6, placeholder: '没有文件时，也可以直接粘贴文本或源码' });
     const error = el('p', { class: 'form-error', role: 'alert', hidden: true });
     let chosen = null, kind = 'mixed', destination = 'new';
     const current0 = current(), canAppend = Boolean(current0 && current0.mode !== 'html' && current0.chapters.length && current0.chapters.at(-1).complete);
@@ -818,19 +827,22 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     let pop;
     const doImport = button('导入', () => action(async () => {
       error.hidden = true;
-      if (!chosen) return notify('请先选择一个文本文件。', true);
-      if (chosen.size > 1000000) throw new Error('文件超过 1 MB，请拆分后再导入。');
-      const text = (await chosen.text()).replace(/\r\n?/g, '\n').trim();
-      if (!text) throw new Error('文件里没有可导入的内容。');
+      let text = chosen ? await chosen.text() : paste.value;
+      text = String(text || '').replace(/\r\n?/g, '\n').trim();
+      if (!text) throw new Error('先选一个文本文件，或把内容粘贴到输入框。');
+      if (text.length > 1000000) throw new Error('内容超过 1 MB，请拆分后再导入。');
       doImport.disabled = true;
       try {
         const mode = kind === 'prose' ? 'prose' : 'mixed';
+        // 整份 HTML 文件没有混合标记时，当成一张网页卡片来渲染，而不是把标签按正文显示。
+        const bareHtml = mode === 'mixed' && !/小手机|瞬息-html|瞬息html|shunxi-html|网页卡片|html卡片/i.test(text) && /^\s*</.test(text);
+        const content = bareHtml ? `<瞬息-html>\n${text}\n</瞬息-html>` : text;
         const settings = clone(state.settings);
         const theme = resolveTheme(state, mode, settings.proseTheme);
         const snapshot = current0?.snapshot || await host.snapshot(settings);
         const names = { character: snapshot?.character?.name, persona: snapshot?.persona?.name };
-        const chapter = { content: text, sourceContent: '', readingRegex: [], stickerSnapshot: captureStickerSnapshot(text, settings.stickers, names), instruction: '', complete: true, mode, themeId: theme.id, readingTheme: captureReadingTheme(theme, mode), wordCount: contentLength(text, mode, names), targetWords: 0 };
-        const title = chosen.name.replace(/\.(txt|md|markdown|text|html|htm)$/i, '').trim().slice(0, 120) || '导入番外';
+        const chapter = { content, sourceContent: '', readingRegex: [], stickerSnapshot: captureStickerSnapshot(content, settings.stickers, names), instruction: '', complete: true, mode, themeId: theme.id, readingTheme: captureReadingTheme(theme, mode), wordCount: contentLength(content, mode, names), targetWords: 0 };
+        const title = (titleInput.value.trim() || (chosen ? chosen.name.replace(/\.(txt|md|markdown|text|html|htm)$/i, '').trim() : '') || '导入番外').slice(0, 120);
         if (destination === 'append' && current0) {
           appendChapter(current0, chapter);
           current0.updatedAt = Date.now();
@@ -845,7 +857,12 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         await persist(); pop.close(); render(); notify(`已导入「${title}」。`);
       } finally { doImport.disabled = false; }
     }), { class: 'primary' });
-    pop = popup('导入番外', el('div', {}, el('p', {}, '选择一个本地文本文件，导入后会出现在番外结果区。'), label('文件', file), name, dropdownField('导入方式', kindChoice), dropdownField('导入到', destChoice), error), [button('取消', () => pop.close()), doImport]);
+    pop = popup('导入番外', el('div', {},
+      el('p', {}, '选一个本地文本文件或直接粘贴，导入后会出现在番外结果区。'),
+      el('div', { class: 'actions' }, button('选择文件', () => file.click(), { class: 'outline' }), fileName), file,
+      label('标题', titleInput), label('粘贴', paste),
+      dropdownField('导入方式', kindChoice), dropdownField('导入到', destChoice), error),
+      [button('取消', () => pop.close()), doImport]);
   }
   function deleteStory(story) {
     const whole = () => confirm(story.mode === 'html' ? '删除 HTML 作品' : '删除整篇番外', `删除「${story.title}」及全部章节？`, async () => {
@@ -913,7 +930,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const title = el('input', { value: draft.title, maxlength: 120, onInput: e => update('title', e.target.value) });
     const content = el('textarea', { rows: 10, value: draft.content, onInput: e => update('content', e.target.value) });
     const tags = el('input', { value: draft.tagsText, placeholder: '用逗号分隔，如：小手机，甜', onInput: e => update('tagsText', e.target.value) });
-    const mode = singleChoice('生成方式', ['any', 'prose', 'phone', 'html'].map(value => ({ value, label: scriptModeLabel(value) })), draft.mode, value => update('mode', value));
+    const mode = singleChoice('生成方式', ['any', 'prose', 'mixed', 'phone', 'html'].map(value => ({ value, label: scriptModeLabel(value) })), draft.mode, value => update('mode', value));
     const error = el('p', { class: 'form-error', role: 'alert', hidden: true });
     let pop; pop = popup(draft.scriptId ? '编辑剧本' : '新建剧本', el('div', {}, label('名称', title), label('指令内容', content), tagEditor('scripts', tags), dropdownField('生成方式', mode), error), [
       button('删除草稿', () => { pop.close(); confirm('删除剧本草稿', '删除这份未完成的编辑？已保存的剧本不受影响。', async () => {
