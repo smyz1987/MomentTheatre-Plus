@@ -28,7 +28,7 @@ import { LibraryLocation } from './library-location.js';
 import { BUILTIN_THEMES, validateTheme, resolveTheme, captureReadingTheme, resolveChapterTheme, removeImportedTheme, themeChoices, isTavernThemeId, tavernThemeId, TAVERN_THEME_IDS, tavernReadingTheme } from './themes.js';
 import { convertTavernTheme, isTavernThemeJson, tavernFontFamily, tavernChatBackground } from './tavern-look.js';
 import { storyPlainText, storySourceText } from './story-copy.js';
-import { stripMixedForHistory } from './mixed-format.js';
+import { stripMixedForHistory, mixedStats } from './mixed-format.js';
 import { renderReader } from './reader.js';
 import { proseDiagnosticText, originalProse } from './prose-diagnostics.js';
 import { cleanHtml, htmlIssue, htmlDocument, HTML_SANDBOX } from './html-work.js';
@@ -332,7 +332,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const issues = [];
     const html = renderReader(story, themeForChapter(story.chapters[index ?? 0] || {}), index, themeForChapter, warnings => {
       for (const warning of warnings) if (!readingWarnings.has(warning)) { readingWarnings.add(warning); report(new Error(warning), '正文正则'); }
-    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true });
+    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true, readScale: state.settings.readScale });
     const token = readerToken(html);
     const frame = el('iframe', { class: `reader-frame ${mode === 'phone' ? 'phone-frame' : 'prose-frame'}${mode === 'mixed' ? ' mixed-frame' : ''}`, title: story.title + '阅读区', sandbox: token ? 'allow-scripts allow-same-origin' : '', referrerpolicy: 'no-referrer' });
     if (token) readerTokens.set(frame, token);
@@ -410,7 +410,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       if (chapterMode !== 'html' && chapterIndex === story.chapters.length - 1) {
         try { canTopUp = contentLength(chapter.content, chapterMode) < chapterTarget; } catch { /* Keep malformed partial content editable. */ }
       }
-      page.append(el('div', { class: 'chapter-bar' }, el('div', { class: 'chapter-progress' }, el('span', { class: 'chapter-count muted', 'aria-live': 'polite' }, chapterCount(story, chapter)), canTopUp && !editing ? button('继续补足', () => run(false, true), { class: 'text-button', disabled: Boolean(task) }) : null), el('div', { class: 'chapter-tools' }, story.mode === 'html' ? null : el('div', { class: 'chapter-buttons', 'aria-label': '章节' }, story.chapters.map((ch, i) => button(String(i + 1), () => { if (editing) return notify('请先保存编辑。'); chapterIndex = i; render(); }, { 'aria-pressed': chapterIndex === i, class: chapterIndex === i ? 'selected' : '' }))), expand)));
+      page.append(el('div', { class: 'chapter-bar' }, el('div', { class: 'chapter-progress' }, el('span', { class: 'chapter-count muted', 'aria-live': 'polite' }, chapterCount(story, chapter)), chapterMode === 'mixed' ? (() => { const stats = mixedStats(chapter.content); return el('span', { class: 'chapter-mixed-scale muted' }, `正文 ${stats.prose} · 手机 ${stats.phones} · 卡片 ${stats.cards}`); })() : null, canTopUp && !editing ? button('继续补足', () => run(false, true), { class: 'text-button', disabled: Boolean(task) }) : null), el('div', { class: 'chapter-tools' }, story.mode === 'html' ? null : el('div', { class: 'chapter-buttons', 'aria-label': '章节' }, story.chapters.map((ch, i) => button(String(i + 1), () => { if (editing) return notify('请先保存编辑。'); chapterIndex = i; render(); }, { 'aria-pressed': chapterIndex === i, class: chapterIndex === i ? 'selected' : '' }))), expand)));
       if (editing) {
         const phoneChapter = (story.chapters[chapterIndex].mode || story.mode) === 'phone';
         const titleInput = el('input', { value: state.editorDraft?.title ?? story.title, maxlength: 120, onInput: e => { state.editorDraft.title = e.target.value; scheduleSave(); } });
@@ -447,7 +447,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         readingSurface = el('div', { class: 'reading-surface' }, makeReader(story, chapterIndex), collapse);
         page.append(readingSurface, el('div', { class: 'actions reader-actions' },
           button('编辑', () => { editing = true; const chapter = story.chapters[chapterIndex]; editText = editablePhoneText(chapter); state.editorDraft = { storyId: story.id, chapterId: chapter.id, content: editText, title: story.title, complete: chapter.complete }; scheduleSave(); render(); }, { disabled: Boolean(task) }),
-          button('复制', () => copyStory(story)), button('保存', () => organize(story), { disabled: Boolean(task) }),
+          button('复制', () => copyStory(story)), button('存为剧本', () => saveStoryAsScript(story), { disabled: Boolean(task) }), button('保存', () => organize(story), { disabled: Boolean(task) }),
           button('删除', () => deleteStory(story), { disabled: Boolean(task) })));
       }
       if (!editing && story.mode !== 'html') {
@@ -909,6 +909,19 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     if (!content.trim()) return notify('先写下想保存的番外指令。');
     let draft = state.scriptDrafts.find(d => !d.scriptId && d.content === content && d.mode === state.draft.mode);
     if (!draft) { draft = newScriptDraft({ content, mode: state.draft.mode }); state.scriptDrafts.push(draft); scheduleSave(); }
+    editScriptDraft(draft);
+  }
+  function saveStoryAsScript(story) {
+    const content = String(story.prompt || '').trim();
+    if (!content) return notify('这篇番外没有保存设定，无法存成剧本。');
+    let draft = state.scriptDrafts.find(d => !d.scriptId && d.content === content);
+    if (!draft) {
+      draft = newScriptDraft({ content, mode: story.mode });
+      draft.title = story.title.slice(0, 120);
+      draft.tagsText = story.tags.join('，');
+      state.scriptDrafts.push(draft);
+      scheduleSave();
+    }
     editScriptDraft(draft);
   }
   function startScript(script = null) {
@@ -1577,6 +1590,13 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const topUpStepper = el('fieldset', { class: 'top-up-stepper', 'aria-label': '自动补足次数选择器' }, topUpMinus, topUpInput, topUpPlus);
     function refreshTopUpStepper() { topUpStepper.disabled = s.autoTopUp === false; topUpMinus.disabled = topUpValue() <= 1; topUpPlus.disabled = topUpValue() >= 50; }
     refreshTopUpStepper();
+    const readScaleValue = () => Math.round((Number(s.readScale) || 1) * 100);
+    const readScaleOut = el('small', {}, `${readScaleValue()}%`);
+    const readScaleInput = el('input', { type: 'range', min: 80, max: 140, step: 5, value: String(readScaleValue()), 'aria-label': '阅读字号', onInput: e => {
+      const value = Number(e.target.value);
+      if (value >= 80 && value <= 140) { update('readScale', value / 100); readScaleOut.textContent = `${value}%`; }
+    }, onChange: () => render() });
+    const readScaleRow = el('div', { class: 'context-row' }, el('label', { class: 'check-row' }, el('span', {}, '阅读字号'), readScaleInput, readScaleOut));
     const keyInput = el('input', { type: 'password', autocomplete: 'off', value: host.getKey(), placeholder: 'API Key', onInput: e => { try { host.setKey(e.target.value.trim()); } catch (error) { report(error); } } });
     const apiActions = el('div', { class:'api-actions' });
     const connectionStatus = el('small', { class:'model-status', role:'status', 'data-connection-status':true });
@@ -1658,6 +1678,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.followFont !== false, onChange: e => { update('followFont', e.target.checked); render(); } }), '字体跟随酒馆'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.followBackground === true, onChange: e => { update('followBackground', e.target.checked); render(); } }), '背景沿用酒馆聊天背景'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.cardScripts === true, onChange: e => { update('cardScripts', e.target.checked); render(); } }), '卡片脚本'),
+        readScaleRow,
         el('p', { class: 'muted' }, '只作用于瞬息自己的阅读区与面板；「跟随酒馆」风格会在每次渲染时读取一次酒馆配色，不监听、不轮询。'),
         el('p', { class: 'muted' }, '「卡片脚本」默认关：开启后混合模式里模型写的脚本会在独立沙箱里运行，只能改自己那张卡片，读不到酒馆页面；但写出死循环会占满渲染线程，整个标签页会卡住且无法中途停止。')),
       el('section', { class: 'settings-group' }, el('h2', {}, '生成参数'),

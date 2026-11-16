@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   readContext: false, contextCount: 10, words: 5000, targetMessages: 50, maxTokens: 60000, stream: true, regexPresets: {}, regexCharacters: {}, bookCharacter: '', characterBooks: {},
   proseTheme: 'prose-stamp', phoneTheme: 'phone-light', launcherEnabled: true, launcher: { x: null, y: null }, models: [], modelsEndpoint: '',
   personaMode: 'current', customPersonaName: '', customPersonaDescription: '', presetOverrides: {}, bookOverrides: {}, stickers: DEFAULT_STICKERS, stickerCatalogVersion: 2, stickerDraft: null,
+  readScale: 1,
 });
 export function emptyState() {
   return { schemaVersion: SCHEMA, themeCatalogVersion: 1, settings: clone(DEFAULT_SETTINGS), categories: [], stories: [], scripts: [], scriptDrafts: [], themes: [], errors: [], editorDraft: null, draft: { prompt: '', mode: 'prose' } };
@@ -113,6 +114,7 @@ export function normalizeState(raw) {
         { ...(typeof value?.enabled === 'boolean' ? { enabled: value.enabled } : {}), ...(typeof value?.content === 'string' ? { content: text(value.content, 100000) } : {}) }]))]));
   }
   state.settings.readContext = s.readContext === true;
+  state.settings.readScale = clamp(s.readScale ?? DEFAULT_SETTINGS.readScale, 0.8, 1.4, DEFAULT_SETTINGS.readScale);
   for (const [key, min, max] of [['contextCount', 1, 200], ['words', 100, 20000], ['targetMessages', 1, 1000], ['maxTokens', 128, 200000]]) {
     state.settings[key] = clamp(s[key] ?? DEFAULT_SETTINGS[key], min, max, DEFAULT_SETTINGS[key]);
   }
@@ -133,14 +135,14 @@ export function normalizeState(raw) {
   state.scripts = list(raw.scripts ?? [], 10000, '剧本').map(s => {
     const key = safeId(s.id); assert(!scriptIds.has(key), '剧本标识重复。'); scriptIds.add(key);
     return { id: key, title: text(s.title, 120), content: text(s.content), tags: strings(s.tags, 100),
-      mode: ['prose', 'phone', 'html'].includes(s.mode) ? s.mode : 'any',
+      mode: ['prose', 'mixed', 'phone', 'html'].includes(s.mode) ? s.mode : 'any',
       createdAt: Number(s.createdAt) || 1, updatedAt: Number(s.updatedAt) || 1, syncConflict: s.syncConflict === true };
   });
   const scriptDraftIds = new Set();
   state.scriptDrafts = list(raw.scriptDrafts ?? [], 10000, '剧本草稿').map(d => {
     const key = safeId(d.id); assert(!scriptDraftIds.has(key), '剧本草稿标识重复。'); scriptDraftIds.add(key);
     return { id: key, scriptId: text(d.scriptId, 100), title: text(d.title, 120), content: text(d.content), tagsText: text(d.tagsText, 10000),
-      mode: ['prose', 'phone', 'html'].includes(d.mode) ? d.mode : 'any' };
+      mode: ['prose', 'mixed', 'phone', 'html'].includes(d.mode) ? d.mode : 'any' };
   });
   state.themes = list(raw.themes ?? [], 100, '主题').map(theme => validateTheme(theme));
   state.stories = list(raw.stories ?? [], 10000, '番外').map(s => {
