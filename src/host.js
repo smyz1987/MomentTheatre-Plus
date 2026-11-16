@@ -3,6 +3,7 @@ import { clone, id } from './model.js';
 import { mountExtensionPanel } from './extension-panel.js';
 import { mountWandEntry } from './wand-entry.js';
 import { normalizeRegexRules } from './preset-regex.js';
+import { convertTavernCss } from './tavern-look.js';
 
 export function normalizeEndpoint(value) {
   let url;
@@ -85,7 +86,8 @@ export class TavernHost {
     return [...names];
   }
   libraryRemote() { return new ServerLibrary(() => this.getContext().getRequestHeaders()); }
-  // 酒馆“UI 主题”存的主题库随设置一起下发，这里按需取一次，只保留做阅读主题要用的颜色字段，避免把几 MB 的设置和自定 CSS 全留在内存里。
+  // 酒馆“UI 主题”存的主题库随设置一起下发。这里取一次，只留下配色与“已转换好的装饰规则”，
+  // 原始 custom_css（整个库约 20MB）当场转成阅读区规则后丢掉，内存里只留约 2MB。
   async tavernThemes({ refresh = false } = {}) {
     if (this.themesCache && !refresh) return this.themesCache;
     const headers = { ...this.getContext().getRequestHeaders(), 'Content-Type': 'application/json' };
@@ -97,6 +99,8 @@ export class TavernHost {
     this.themesCache = list.map(item => {
       const slim = { name: String(item?.name || '未命名主题') };
       for (const key of keep) if (item && item[key] !== undefined) slim[key] = item[key];
+      const css = convertTavernCss(String(item?.custom_css || '')).css;
+      if (css) slim.css = css;
       return slim;
     }).filter(item => item.name);
     return this.themesCache;

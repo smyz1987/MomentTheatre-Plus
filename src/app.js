@@ -1229,11 +1229,25 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       const theme = state.themes.find(t => t.id.startsWith(prefix) && t.id === state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme']);
       return theme ? theme.name.replace(/·(小手机|正文)$/, '') : null;
     };
+    // 主题自带的装饰规则（原美化 custom_css 转换而来）跟配色一起套上；太长就截到最后一个完整规则。
+    const fitCss = css => {
+      const text = String(css || '');
+      if (text.length <= 29000) return text;
+      const cut = text.slice(0, 29000), last = cut.lastIndexOf('}');
+      return last > 0 ? cut.slice(0, last + 1) : '';
+    };
     const applyLibraryTheme = (mode, name) => action(async () => {
       const source = (tavernLibrary || []).find(item => item.name === name);
       if (!source) throw new Error('这个主题不在酒馆主题库里了，请重新读取。');
       const converted = convertTavernTheme(source, mode, { withCss: false });
-      const theme = validateTheme({ id: libId(mode, name), name: `${name}·${mode === 'phone' ? '小手机' : '正文'}`, mode, tokens: converted.tokens, css: converted.css });
+      const css = fitCss(state.settings.libraryCss === false ? converted.css : [converted.css, source.css].filter(Boolean).join('\n'));
+      // 装饰规则偶尔会有阅读区接不住的写法，兜底退回只用配色，不让选择直接失败。
+      let theme;
+      try {
+        theme = validateTheme({ id: libId(mode, name), name: `${name}·${mode === 'phone' ? '小手机' : '正文'}`, mode, tokens: converted.tokens, css });
+      } catch {
+        theme = validateTheme({ id: libId(mode, name), name: `${name}·${mode === 'phone' ? '小手机' : '正文'}`, mode, tokens: converted.tokens, css: converted.css });
+      }
       // 每种模式只保留当前选中的这一套，避免主题库越选越臃肿。
       state.themes = [...state.themes.filter(t => !t.id.startsWith(`custom-lib-${mode}-`)), theme];
       selectReadingTheme(mode, theme.id);
@@ -1263,6 +1277,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     });
     const librarySection = el('section', { class: 'settings-group', 'data-tour': 'theme-library' }, el('h2', {}, '酒馆主题库'),
       el('p', { class: 'muted' }, '如果番外想用的美化和你酒馆现在这套不一样，就在这里从酒馆「UI 主题」里另选一套。'),
+      el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: state.settings.libraryCss !== false, onChange: e => { state.settings.libraryCss = e.target.checked; scheduleSave(); render(); } }), '连装饰一起套上'),
+      el('p', { class: 'muted' }, '勾上后字体、底纹、边框、装饰图都按这套美化来；取消只留配色。'),
       el('div', { class: 'actions' }, button('读取主题库', loadLibrary, { class: 'outline' }), libraryStatus), libraryRows);
     if (tavernLibrary) drawLibrary();
     return el('section', { class: 'page' }, el('div', { class: 'page-heading theme-heading' }, el('h1', {}, '阅读美化'),

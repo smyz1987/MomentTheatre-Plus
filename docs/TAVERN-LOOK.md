@@ -43,7 +43,10 @@
 
 不想先导出 JSON 时，美化页的「酒馆主题库」可以直接列出酒馆里已保存的美化：
 
-- 点「读取主题库」时向酒馆发一次 `POST /api/settings/get`（酒馆设置本来就把 `data/<user>/themes/*.json` 一起下发），只挑出名称与 `main_text_color`／`italics_text_color`／`quote_text_color`／`blur_tint_color`／`chat_tint_color`／`user_mes_blur_tint_color`／`bot_mes_blur_tint_color`／`shadow_color`／`border_color`／`font_scale` 这些字段，装饰 CSS 不留在内存。
+- 点「读取主题库」时向酒馆发一次 `POST /api/settings/get`（酒馆设置本来就把 `data/<user>/themes/*.json` 一起下发）。除了名称与 `main_text_color`／`italics_text_color`／`quote_text_color`／`blur_tint_color`／`chat_tint_color`／`user_mes_blur_tint_color`／`bot_mes_blur_tint_color`／`shadow_color`／`border_color`／`font_scale` 这些配色字段，每套的 `custom_css` 会当场用 `convertTavernCss` 转成阅读区规则后只保留转换结果：整库约 20MB 原始 CSS 不留在内存，转换后约 2.3MB；426 套实测转换约 3 秒。
+- 装饰规则把 `#chat` 映射成章节、`.mes_text`／`.mes_block*`／`.mes` 映射成段落、`body` 映射成章节，界面规则（顶栏、抽屉、输入框、`:has()` 等）丢弃；`@font-face` 与 https 图片保留，转换结果逐条过 `parseThemeCss` 校验。
+- 美化页的「连装饰一起套上」开关控制是否并入这些装饰规则，默认开；关掉只套配色。
+- 阅读区在沙箱 iframe 里渲染，酒馆用 `@import` 引来的网络字体不会自动进去，因此每份阅读区文档会额外挂上与酒馆相同的字体样式表（`fontsapi.zeoseven.com`／Google Fonts 等，最多 6 个），`style-src` 只对 https 样式表放行，其余仍是 `default-src 'none'`。
 - 只读一次，结果缓存在实例里；再点一次按钮会强制重读，用来刷新新存的主题。除这次读取外不监听、不轮询，也不改动酒馆当前主题。
 - 正文与小手机各有一个下拉：可以从酒馆库里各挑一套，和你酒馆当前在用的那套不一样也没问题；每种模式只保留最近选中的一套，不会让主题库越选越大。
 - 选定的主题会转换成瞬息自己的阅读主题（沿用 `convertTavernTheme`），生成章节时照常冻结快照。气泡色会先做对比度检查，夜间主题不会出现白底白字。

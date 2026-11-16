@@ -94,6 +94,35 @@ export function effectiveFont(themeFont, follow = true) {
   return themeFont;
 }
 
+// 阅读区在独立沙箱 iframe 里，酒馆用 @import 载入的网络字体不会跟进去，这里把字体的
+// 样式表链接带进阅读区，让番外和预览真正用上酒馆同一套字体。
+const FONT_HOST = /fontsapi\.zeoseven\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|fonts\.cdnfonts\.com|chinese-fonts-cdn|fonts\.fontsource\.org/i;
+export function tavernFontLinks() {
+  if (!safe()) return [];
+  const found = new Set();
+  try {
+    for (const node of document.querySelectorAll('style')) {
+      const text = node.textContent || '';
+      if (!text || text.indexOf('@import') === -1) continue;
+      const rule = /@import\s+url\(\s*(?:'([^']+)'|"([^"]+)"|([^'")]+))\s*\)/gi;
+      let match;
+      while ((match = rule.exec(text))) {
+        const href = (match[1] || match[2] || match[3] || '').trim();
+        if (/^https:\/\//i.test(href) && FONT_HOST.test(href)) found.add(href);
+      }
+    }
+    for (const link of document.querySelectorAll('link[rel~="stylesheet"]')) {
+      const href = link.getAttribute('href') || '';
+      if (/^https:\/\//i.test(href) && FONT_HOST.test(href)) found.add(href);
+    }
+    for (const sheet of Array.from(document.styleSheets)) {
+      const href = sheet.href || '';
+      if (/^https:\/\//i.test(href) && FONT_HOST.test(href)) found.add(href);
+    }
+  } catch { }
+  return [...found].slice(0, 6);
+}
+
 function chatTypography() {
   const fallback = { fontSize: '', lineHeight: '' };
   if (!safe()) return fallback;

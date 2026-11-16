@@ -7,7 +7,7 @@ import { captureReadingTheme, resolveTheme, resolveLegacyTheme, validateTheme, B
 
 import { createId } from './id.js';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.3.1';
 export const normalizeMode = mode => ['prose', 'phone', 'html', 'mixed'].includes(mode) ? mode : 'prose';
 export const modeLabel = mode => ({ prose: '正文', phone: '小手机', html: 'HTML', mixed: '混合' }[mode] || '正文');
 export const SCHEMA = 1;
@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   readContext: false, contextCount: 10, words: 5000, targetMessages: 50, maxTokens: 60000, stream: true, regexPresets: {}, regexCharacters: {}, bookCharacter: '', characterBooks: {},
   proseTheme: 'prose-stamp', phoneTheme: 'phone-light', launcherEnabled: true, launcher: { x: null, y: null }, models: [], modelsEndpoint: '',
   personaMode: 'current', customPersonaName: '', customPersonaDescription: '', presetOverrides: {}, bookOverrides: {}, stickers: DEFAULT_STICKERS, stickerCatalogVersion: 2, stickerDraft: null,
-  readScale: 1, tourDone: false,
+  readScale: 1, tourDone: false, libraryCss: true,
 });
 export function emptyState() {
   return { schemaVersion: SCHEMA, themeCatalogVersion: 1, settings: clone(DEFAULT_SETTINGS), categories: [], stories: [], scripts: [], scriptDrafts: [], themes: [], errors: [], editorDraft: null, draft: { prompt: '', mode: 'prose' } };
