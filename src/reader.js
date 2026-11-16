@@ -59,6 +59,8 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
   const nonce = cardToken(); let cards = 0;
   // 字体只在本次渲染里解析一次：默认跟随酒馆全局字体，主题写明具体字体时优先主题。
   const followFont = options.followFont !== false;
+  // 「卡片脚本」默认关：关闭时模型写的脚本在渲染前就被剥掉；开启后只在不透明源沙箱里执行。
+  const cardScripts = options.cardScripts === true;
   const fontCache = new Map();
   const resolveFont = themeFont => {
     const key = String(themeFont || '');
@@ -92,10 +94,10 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
         if (segment.kind === 'overflow') return `<p class="diagnostic">本节网页卡片已达 ${MIXED_CAPS.blocks} 张上限，后面的卡片只保留文字说明。</p>`;
         if (segment.kind === 'phone') return `<div class="mixed-phone">${mixedPhone(segment.text, chapter, n)}</div>`;
         if (segment.kind === 'html') {
-          const html = sanitizeCardHtml(segment.text);
+          const html = sanitizeCardHtml(segment.text, { scripts: cardScripts });
           if (!html) return '';
           cards++;
-          return `<div class="mixed-card">${cardFrame(html, '', [], nonce, cardToken(), '网页卡片')}</div>`;
+          return `<div class="mixed-card">${cardFrame(html, '', [], nonce, cardToken(), '网页卡片', cardScripts ? { scripts: true } : {})}</div>`;
         }
         const rendered = renderRegexProse(segment.text, chapter.readingRegex, story.snapshot || {}, n, nonce);
         cards += rendered.cards || 0;

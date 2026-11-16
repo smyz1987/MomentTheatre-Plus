@@ -76,6 +76,8 @@ export function normalizeState(raw) {
   // 外观跟随酒馆：缺省视为开启字体跟随、关闭背景图跟随，保持旧资料校验和不被改动。
   if (Object.hasOwn(s, 'followFont')) state.settings.followFont = s.followFont !== false;
   if (Object.hasOwn(s, 'followBackground')) state.settings.followBackground = s.followBackground === true;
+  // 卡片脚本默认关，同样只在显式开启后写入，避免改动旧同步校验形状。
+  if (Object.hasOwn(s, 'cardScripts')) state.settings.cardScripts = s.cardScripts === true;
   for (const key of ['endpoint', 'model', 'character', 'persona', 'preset', 'proseTheme', 'phoneTheme']) state.settings[key] = text(s[key], 2000) || DEFAULT_SETTINGS[key];
   state.settings.theme = s.theme === 'night' ? 'night' : 'day';
   state.settings.apiMode = s.apiMode === 'independent' ? 'independent' : 'main';

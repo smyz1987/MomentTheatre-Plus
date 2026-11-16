@@ -19,7 +19,10 @@ export function readerBridge(nonce) {
   }.toString()})();</script>`;
 }
 
-export function cardFrame(content, css, scripts, nonce, id, name) {
+export function cardFrame(content, css, scripts, nonce, id, name, options = {}) {
+  // 默认只放行带 nonce 的脚本；「卡片脚本」开启时才额外允许卡片里模型写的内联脚本，
+  // 沙箱仍是不透明源（没有 allow-same-origin），connect-src 保持 'none'。
+  const scriptSrc = options.scripts === true ? `script-src 'nonce-${nonce}' 'unsafe-inline'` : `script-src 'nonce-${nonce}'`;
   const bootstrap = `(${function (id, name) {
     let scheduled = false, previous = 0;
     function size() {
@@ -58,7 +61,7 @@ export function cardFrame(content, css, scripts, nonce, id, name) {
   for (const script of scripts) {
     content = content.replaceAll(`<span data-regex-script="${script.id}"></span>`, () => `<script nonce="${nonce}">${script.code}</script>`);
   }
-  const doc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; img-src https: http: data:; font-src https: http: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>html{background:transparent;overflow:auto}body{display:flow-root;margin:0;min-height:0;background:transparent;font:14px/1.7 system-ui;overflow-wrap:anywhere}*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#8886 transparent}img{max-width:100%} ${css}</style><script nonce="${nonce}">${bootstrap}</script></head><body>${content}</body></html>`;
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; ${scriptSrc}; style-src 'unsafe-inline'; img-src https: http: data:; font-src https: http: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><style>html{background:transparent;overflow:auto}body{display:flow-root;margin:0;min-height:0;background:transparent;font:14px/1.7 system-ui;overflow-wrap:anywhere}*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#8886 transparent}img{max-width:100%} ${css}</style><script nonce="${nonce}">${bootstrap}</script></head><body>${content}</body></html>`;
   return `<iframe class="regex-card" data-regex-card="${id}" title="${escape(name || '正文卡片')}" sandbox="allow-scripts" referrerpolicy="no-referrer" style="display:block;width:100%;height:160px;border:0;background:transparent" srcdoc="${escape(doc)}"></iframe>`;
 }
 

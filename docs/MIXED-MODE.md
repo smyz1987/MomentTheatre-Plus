@@ -18,6 +18,15 @@
 
 图片只能用完整 HTTP(S) 直链；禁止编造链接。
 
+## 卡片脚本（默认关）
+
+设置 → 外观里的「卡片脚本」是一个显式选项，默认关闭。
+
+- 关闭时：卡片里的 `<script>`、事件属性（`onclick` 等）在渲染前就被删除，卡片只作静态展示。
+- 开启时：只保留 `<script>` 与事件属性，其余危险元素照旧拦截——`iframe`、`object`、`embed`、`form`、`input`、`link`、`meta`、`base`、`javascript:` 链接、`@import` 一律删除。
+- 无论开关如何，卡片都跑在 `sandbox="allow-scripts"` 的不透明源里，没有 `allow-same-origin`：脚本读不到酒馆页面、Shadow DOM、localStorage 和聊天内容；CSP 的 `connect-src` 固定为 `'none'`，发不出网络请求；没有 `allow-modals`、`allow-popups`，弹不出对话框也开不了新窗口。
+- 唯一真实风险是性能：脚本里写出同步死循环或重计算会占满渲染线程（卡片 iframe 和酒馆主页面同进程），整个标签页会失去响应且无法中途终止。所以默认关，只在明确知道这张卡要交互时打开。
+
 ## 保护上限
 
 为了防止异常回复把阅读区拖慢，混合章节按下面的硬上限渲染：

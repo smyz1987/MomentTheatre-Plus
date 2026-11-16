@@ -88,15 +88,19 @@ export function readableMixedSegments(content) {
   });
 }
 
-// 模型写的网页卡片一律按静态装饰处理：剥离脚本、内嵌框架、表单与事件属性，
-// 卡片本身仍跑在单独的沙箱 iframe 里，双重拦截。
+// 默认按静态装饰处理：剥离脚本、内嵌框架、表单与事件属性，卡片本身仍跑在单独的沙箱 iframe 里。
+// options.scripts 为 true 时（设置里的「卡片脚本」，默认关）保留 <script> 与事件属性，
+// 其余危险元素照旧拦掉；脚本依然在不透明源的沙箱里，没有 allow-same-origin。
 const BLOCKED_TAGS = 'script|iframe|object|embed|applet|frame|frameset|form|input|button|textarea|select|link|meta|base|noscript';
-export function sanitizeCardHtml(html) {
+const SCRIPTS_OPTIONAL_TAGS = 'iframe|object|embed|applet|frame|frameset|form|input|button|textarea|select|link|meta|base|noscript';
+export function sanitizeCardHtml(html, options = {}) {
+  const allowScripts = options.scripts === true;
+  const blocked = allowScripts ? SCRIPTS_OPTIONAL_TAGS : BLOCKED_TAGS;
   let out = String(html ?? '');
   out = out.replace(/<!doctype[^>]*>/gi, '').replace(/<\/?(?:html|head|body|main)[^>]*>/gi, '');
-  out = out.replace(new RegExp(`<(${BLOCKED_TAGS})\\b[\\s\\S]*?<\\/\\1>`, 'gi'), '');
-  out = out.replace(new RegExp(`<\\/?(${BLOCKED_TAGS})\\b[^>]*>`, 'gi'), '');
-  out = out.replace(/\son[a-z-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  out = out.replace(new RegExp(`<(${blocked})\\b[\\s\\S]*?<\\/\\1>`, 'gi'), '');
+  out = out.replace(new RegExp(`<\\/?(${blocked})\\b[^>]*>`, 'gi'), '');
+  if (!allowScripts) out = out.replace(/\son[a-z-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   out = out.replace(/\b(href|src|action|formaction)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (match) => /javascript\s*:/i.test(match) ? '' : match);
   out = out.replace(/@import[^;]*;/gi, '');
   return out.trim();

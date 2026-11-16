@@ -332,7 +332,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const issues = [];
     const html = renderReader(story, themeForChapter(story.chapters[index ?? 0] || {}), index, themeForChapter, warnings => {
       for (const warning of warnings) if (!readingWarnings.has(warning)) { readingWarnings.add(warning); report(new Error(warning), '正文正则'); }
-    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false });
+    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true });
     const token = readerToken(html);
     const frame = el('iframe', { class: `reader-frame ${mode === 'phone' ? 'phone-frame' : 'prose-frame'}${mode === 'mixed' ? ' mixed-frame' : ''}`, title: story.title + '阅读区', sandbox: token ? 'allow-scripts allow-same-origin' : '', referrerpolicy: 'no-referrer' });
     if (token) readerTokens.set(frame, token);
@@ -1640,7 +1640,9 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       el('section', { class: 'settings-group' }, el('h2', {}, '外观'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.followFont !== false, onChange: e => { update('followFont', e.target.checked); render(); } }), '字体跟随酒馆'),
         el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.followBackground === true, onChange: e => { update('followBackground', e.target.checked); render(); } }), '背景沿用酒馆聊天背景'),
-        el('p', { class: 'muted' }, '只作用于瞬息自己的阅读区与面板；「跟随酒馆」风格会在每次渲染时读取一次酒馆配色，不监听、不轮询。')),
+        el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: s.cardScripts === true, onChange: e => { update('cardScripts', e.target.checked); render(); } }), '卡片脚本'),
+        el('p', { class: 'muted' }, '只作用于瞬息自己的阅读区与面板；「跟随酒馆」风格会在每次渲染时读取一次酒馆配色，不监听、不轮询。'),
+        el('p', { class: 'muted' }, '「卡片脚本」默认关：开启后混合模式里模型写的脚本会在独立沙箱里运行，只能改自己那张卡片，读不到酒馆页面；但写出死循环会占满渲染线程，整个标签页会卡住且无法中途停止。')),
       el('section', { class: 'settings-group' }, el('h2', {}, '生成参数'),
         el('div', { class: 'parameter-pair' }, settingNumber('目标正文字数', 'words', 100, 20000), settingNumber('目标消息条数', 'targetMessages', 1, 1000)),
         el('div', { class: 'parameter-pair top-up-options' }, el('label', { class: 'top-up-toggle' }, el('input', { type: 'checkbox', checked: s.autoTopUp !== false, onChange: e => { update('autoTopUp', e.target.checked); refreshTopUpStepper(); } }), el('span', {}, '开启自动补足字数')), el('div', { class: 'top-up-setting' }, el('span', {}, '自动补足'), topUpStepper, el('span', {}, '次'))),
