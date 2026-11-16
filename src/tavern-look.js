@@ -56,6 +56,13 @@ function flatten(color, under) {
 }
 
 const luminance = color => (0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b) / 255;
+// 相对亮度对比度，用来判断气泡配色套上去后文字还看不看得清（低于 3 就放弃气泡色，退回默认样式）。
+function contrastRatio(a, b) {
+  const channel = value => { const x = value / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  const lum = color => 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
 
 export function sanitizeFont(value) {
   const text = String(value || '').replace(/[;{}<>\\]/g, '').replace(/expression\s*\(/gi, '').trim();
@@ -273,8 +280,22 @@ export function convertTavernTheme(raw, mode = 'prose', { withCss = false } = {}
   const foreground = ink ? flatten(ink, paper) : null;
   if (foreground) tokens.color = cssColor(foreground);
   const own = parseColor(raw.user_mes_blur_tint_color), other = parseColor(raw.bot_mes_blur_tint_color);
-  if (own && own.a > 0.05) tokens.ownBubble = cssColor(flatten(own, paper));
-  if (other && other.a > 0.05) tokens.bubble = cssColor(flatten(other, paper));
+  // 夜间主题的气泡色叠到浅色底上会变成白底白字，所以先校验对比度，不合格就用正文色相对纸面推一档气泡色。
+  const textColor = foreground || flatten(ink || under, paper);
+  const toneBubble = (weight, fallbackPaper) => {
+    const base = paper || fallbackPaper;
+    const target = textColor && luminance(textColor) > 0.5 ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
+    return cssColor(flatten(mixChannels(base, target, weight), base));
+  };
+  const bubbleToken = (color, weight) => {
+    const flat = color && color.a > 0.05 ? flatten(color, paper) : null;
+    if (flat && textColor && contrastRatio(flat, textColor) >= 3) return cssColor(flat);
+    return toneBubble(weight, { r: 249, g: 248, b: 246, a: 1 });
+  };
+  if (paper && textColor) {
+    tokens.bubble = bubbleToken(other, 0.09);
+    tokens.ownBubble = bubbleToken(own, 0.17);
+  }
   const scale = Number(raw.font_scale);
   if (Number.isFinite(scale) && scale > 0 && scale <= 2 && mode === 'prose') tokens.fontSize = `${clamp(Math.round(17 * scale), 11, 22)}px`;
   const warnings = [];

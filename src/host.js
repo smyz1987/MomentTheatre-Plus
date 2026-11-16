@@ -85,6 +85,22 @@ export class TavernHost {
     return [...names];
   }
   libraryRemote() { return new ServerLibrary(() => this.getContext().getRequestHeaders()); }
+  // 酒馆“UI 主题”存的主题库随设置一起下发，这里按需取一次，只保留做阅读主题要用的颜色字段，避免把几 MB 的设置和自定 CSS 全留在内存里。
+  async tavernThemes({ refresh = false } = {}) {
+    if (this.themesCache && !refresh) return this.themesCache;
+    const headers = { ...this.getContext().getRequestHeaders(), 'Content-Type': 'application/json' };
+    const response = await fetch('/api/settings/get', { method: 'POST', headers, body: '{}' });
+    if (!response.ok) throw new Error(`酒馆主题库读取失败：HTTP ${response.status}。`);
+    const data = await response.json().catch(() => null);
+    const list = Array.isArray(data?.themes) ? data.themes : [];
+    const keep = ['main_text_color', 'italics_text_color', 'quote_text_color', 'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color', 'shadow_color', 'border_color', 'font_scale'];
+    this.themesCache = list.map(item => {
+      const slim = { name: String(item?.name || '未命名主题') };
+      for (const key of keep) if (item && item[key] !== undefined) slim[key] = item[key];
+      return slim;
+    }).filter(item => item.name);
+    return this.themesCache;
+  }
   getKey() { try { const saved = localStorage.getItem(this.sessionKey); if (saved) return saved; const previous = sessionStorage.getItem(this.sessionKey) || ''; if (previous) this.setKey(previous); return previous; } catch { return ''; } }
   setKey(key) { try { if (key) localStorage.setItem(this.sessionKey, key); else localStorage.removeItem(this.sessionKey); sessionStorage.removeItem(this.sessionKey); } catch { throw new Error('无法保存密钥，请检查浏览器存储权限。'); } }
   mountSettingsPanel(controller) { return mountExtensionPanel(controller); }

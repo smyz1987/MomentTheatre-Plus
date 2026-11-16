@@ -39,3 +39,11 @@
 - 导入时一次性转换完成，之后存库复用，不重新解析；转换结果上限约 2.8 万字符。
 - 渲染时只读一次 `getComputedStyle`（面板字体一次、阅读区一次），没有事件监听、没有 MutationObserver、没有 setInterval。
 - 阅读区背景图仅在开启跟随背景且是 http(s) 时才取，长度有上限，避免大 base64 卡住渲染。
+## 酒馆主题库
+
+不想先导出 JSON 时，美化页的「酒馆主题库」可以直接列出酒馆里已保存的美化：
+
+- 点「读取主题库」时向酒馆发一次 `POST /api/settings/get`（酒馆设置本来就把 `data/<user>/themes/*.json` 一起下发），只挑出名称与 `main_text_color`／`italics_text_color`／`quote_text_color`／`blur_tint_color`／`chat_tint_color`／`user_mes_blur_tint_color`／`bot_mes_blur_tint_color`／`shadow_color`／`border_color`／`font_scale` 这些字段，装饰 CSS 不留在内存。
+- 只读一次，结果缓存在实例里；再点一次按钮会强制重读，用来刷新新存的主题。除这次读取外不监听、不轮询，也不改动酒馆当前主题。
+- 正文与小手机各有一个下拉：可以从酒馆库里各挑一套，和你酒馆当前在用的那套不一样也没问题；每种模式只保留最近选中的一套，不会让主题库越选越大。
+- 选定的主题会转换成瞬息自己的阅读主题（沿用 `convertTavernTheme`），生成章节时照常冻结快照。气泡色会先做对比度检查，夜间主题不会出现白底白字。

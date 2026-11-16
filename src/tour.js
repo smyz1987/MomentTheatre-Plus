@@ -13,6 +13,8 @@ export const TOUR_STEPS = [
     text: '「文本」只给能直接读的结果，「源码」保留特殊格式标记，重新导入还能渲染。' },
   { key: 'theme-import', tab: 'themes', anchor: '[data-tour="theme-import"]', title: '导入酒馆美化',
     text: '直接读酒馆那种 JSON 美化包；想让它跟着酒馆实时变，就选「跟随酒馆」。' },
+  { key: 'theme-library', tab: 'themes', anchor: '[data-tour="theme-library"]', title: '酒馆主题库',
+    text: '不想导入文件也行：点「读取主题库」，就能从酒馆自己的美化列表里挑一套给番外用，正文和小手机可以各选一套，和你酒馆当前那套不一样也没关系。' },
   { key: 'look', tab: 'settings', anchor: '[data-tour="look"]', title: '外观',
     text: '字体默认跟随酒馆全局字体；还能让背景沿用聊天背景、给网页卡片开脚本（默认关）、调整阅读字号。' },
   { key: 'done', tab: 'settings', anchor: '[data-tour="look"]', title: '介绍完了',

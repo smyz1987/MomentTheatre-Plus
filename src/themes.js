@@ -35,11 +35,13 @@ export function validateTheme(raw, { allowBuiltInId = false } = {}) {
 }
 export function resolveTheme(state, mode, themeId) {
   const target = themeMode(mode);
+  const follow = () => tavernReadingTheme(target, { background: state?.settings?.followBackground === true, font: state?.settings?.followFont !== false });
   // “跟随酒馆”每次渲染现取一次酒馆配色，章节保存时会冻结成快照。
-  if (isTavernThemeId(themeId) && tavernThemeId(target) === themeId) return tavernReadingTheme(target, { background: state?.settings?.followBackground === true, font: state?.settings?.followFont !== false });
-  return [...BUILTIN_THEMES, ...state.themes].find(t => t.id === themeId && t.mode === target)
-    || TAVERN_THEME_IDS.includes(themeId) && tavernThemeId(target) === themeId ? tavernReadingTheme(target, { background: state?.settings?.followBackground === true, font: state?.settings?.followFont !== false })
-    : BUILTIN_THEMES.find(t => t.mode === target);
+  if (isTavernThemeId(themeId) && tavernThemeId(target) === themeId) return follow();
+  const chosen = [...BUILTIN_THEMES, ...(state?.themes || [])].find(t => t.id === themeId && t.mode === target);
+  if (chosen) return chosen;
+  if (TAVERN_THEME_IDS.includes(themeId) && tavernThemeId(target) === themeId) return follow();
+  return BUILTIN_THEMES.find(t => t.mode === target) || follow();
 }
 // 美化页要列出的可选风格：内置 + 导入 + 实时的“跟随酒馆”。
 export function themeChoices(state, mode) {

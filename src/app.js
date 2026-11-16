@@ -100,6 +100,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   if (previous) return;
   let store = null, state = null, ready = false, loading = null, startupError = null, startupDiagnostic = null;
   let libraryAttempted = false;
+  let tavernLibrary = null;
   const libraryLocation = new LibraryLocation(host.scope);
   let catalog = { characters: [], personas: [], books: [], presets: [] };
   let tab = 'generate', storyId = null, chapterIndex = 0, continuationOpen = false;
@@ -1213,9 +1214,60 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       await apply(false);
     }) });
     refreshDelete();
+    // 酒馆主题库：直接取用酒馆「UI 主题」里已保存的美化，正文与小手机可以各选一套，不必和酒馆当前主题相同。
+    let libraryBusy = false;
+    const libraryStatus = el('small', { class: 'muted' }, tavernLibrary ? `已读取 ${tavernLibrary.length} 套酒馆主题，选择后只影响番外。` : '还没有读取。读取只取配色，不改动酒馆当前主题。');
+    const libraryRows = el('div', { class: 'library-theme-rows' });
+    // 主题 id 只允许 custom- 加小写字母数字，用名字的短哈希保证同一套酒馆主题每次拿到同一个 id。
+    const libId = (mode, name) => {
+      let hash = 7;
+      for (const ch of String(name)) hash = (hash * 31 + ch.codePointAt(0)) % 0xffffff;
+      return `custom-lib-${mode}-${hash.toString(16)}`;
+    };
+    const currentLibraryName = mode => {
+      const prefix = `custom-lib-${mode}-`;
+      const theme = state.themes.find(t => t.id.startsWith(prefix) && t.id === state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme']);
+      return theme ? theme.name.replace(/·(小手机|正文)$/, '') : null;
+    };
+    const applyLibraryTheme = (mode, name) => action(async () => {
+      const source = (tavernLibrary || []).find(item => item.name === name);
+      if (!source) throw new Error('这个主题不在酒馆主题库里了，请重新读取。');
+      const converted = convertTavernTheme(source, mode, { withCss: false });
+      const theme = validateTheme({ id: libId(mode, name), name: `${name}·${mode === 'phone' ? '小手机' : '正文'}`, mode, tokens: converted.tokens, css: converted.css });
+      // 每种模式只保留当前选中的这一套，避免主题库越选越臃肿。
+      state.themes = [...state.themes.filter(t => !t.id.startsWith(`custom-lib-${mode}-`)), theme];
+      selectReadingTheme(mode, theme.id);
+      skinPreview = mode;
+      await persist(); render();
+      notify(`已套用酒馆主题「${name}」到${mode === 'phone' ? '小手机' : '正文'}。`);
+    });
+    const drawLibrary = () => {
+      if (!tavernLibrary) return;
+      libraryRows.replaceChildren(...['prose', 'phone'].map(mode => {
+        const label = mode === 'phone' ? '小手机用它' : '正文用它';
+        const selected = currentLibraryName(mode);
+        const select = el('select', { 'aria-label': `从酒馆主题库为${mode === 'phone' ? '小手机' : '正文'}选一套`, onChange: e => { const value = e.target.value; if (value) applyLibraryTheme(mode, value).catch(() => {}); } },
+          el('option', { value: '' }, selected ? `当前：${selected}` : '选择酒馆主题库里的美化'),
+          ...tavernLibrary.map(item => el('option', { value: item.name, selected: item.name === selected }, item.name)));
+        return el('div', { class: 'library-theme-row' }, el('span', { class: 'field-label' }, label), select);
+      }));
+    };
+    const loadLibrary = () => action(async () => {
+      if (libraryBusy) return;
+      libraryBusy = true; libraryStatus.textContent = '正在读取酒馆主题库…';
+      try {
+        tavernLibrary = await host.tavernThemes({ refresh: true });
+        libraryStatus.textContent = tavernLibrary.length ? `已读取 ${tavernLibrary.length} 套酒馆主题，选择后只影响番外。` : '酒馆主题库里还没有保存过主题。';
+        drawLibrary();
+      } finally { libraryBusy = false; }
+    });
+    const librarySection = el('section', { class: 'settings-group', 'data-tour': 'theme-library' }, el('h2', {}, '酒馆主题库'),
+      el('p', { class: 'muted' }, '如果番外想用的美化和你酒馆现在这套不一样，就在这里从酒馆「UI 主题」里另选一套。'),
+      el('div', { class: 'actions' }, button('读取主题库', loadLibrary, { class: 'outline' }), libraryStatus), libraryRows);
+    if (tavernLibrary) drawLibrary();
     return el('section', { class: 'page' }, el('div', { class: 'page-heading theme-heading' }, el('h1', {}, '阅读美化'),
       el('div', { class: 'theme-actions' }, button('导入', () => imported.click(), { class: 'outline', 'data-tour': 'theme-import' }), button('导出', () => download(JSON.stringify({ format: 'shunxi-reading-themes', version: 1, themes: ['prose','phone'].map(mode => resolveTheme(state, mode, state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'])) }, null, 2), '瞬息-阅读主题.json', 'application/json'), { class: 'outline' }), deleteButton)),
-      el('p', { class: 'muted' }, '选择新章节的阅读风格，已生成内容保留原样。'), el('div', { class: 'skins-grid' }, panels), imported);
+      el('p', { class: 'muted' }, '选择新章节的阅读风格，已生成内容保留原样。'), el('div', { class: 'skins-grid' }, panels), librarySection, imported);
   }
   function selectReadingTheme(mode, themeId) {
     state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'] = themeId;
