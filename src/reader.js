@@ -94,8 +94,8 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
         if (segment.kind === 'overflow') return `<p class="diagnostic">本节网页卡片已达 ${MIXED_CAPS.blocks} 张上限，后面的卡片只保留文字说明。</p>`;
         if (segment.kind === 'phone') return `<div class="mixed-phone">${mixedPhone(segment.text, chapter, n)}</div>`;
         if (segment.kind === 'html') {
-          // 整篇一起渲染时再设一道总量上限，避免几十节各自满额堆出上百个 iframe。
-          if (chapterIndex === null && bookCards >= MIXED_CAPS.bookBlocks) return `<p class="diagnostic">整篇网页卡片已达 ${MIXED_CAPS.bookBlocks} 张上限，后面的卡片只保留文字说明。</p>`;
+          // 整篇一起渲染时再设一道总量上限，避免几十节各自满额堆出上百个 iframe；导出 HTML 时不设限。
+          if (chapterIndex === null && options.bookCap !== false && bookCards >= MIXED_CAPS.bookBlocks) return `<p class="diagnostic">整篇网页卡片已达 ${MIXED_CAPS.bookBlocks} 张上限，后面的卡片只保留文字说明。</p>`;
           const html = sanitizeCardHtml(segment.text, { scripts: cardScripts });
           if (!html) return '';
           bookCards++; cards++;

@@ -12,7 +12,7 @@ export function storyHtmlFile(state, story) {
   if (!story.chapters.length) throw new Error('这篇番外还没有可导出的章节。');
   const content = story.mode === 'html'
     ? cleanHtml(story.chapters[0].content, story.chapters[0].readingRegex, story.snapshot)
-    : renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null, ch => resolveChapterTheme(state, story, ch));
+    : renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null, ch => resolveChapterTheme(state, story, ch), null, { bookCap: false });
   if (!content.trim()) throw new Error('这篇作品没有可导出的 HTML 内容。');
   return { name: safeName(story.title) + '.html', content, type: 'text/html;charset=utf-8' };
 }
