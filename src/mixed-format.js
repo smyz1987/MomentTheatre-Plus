@@ -1,11 +1,14 @@
 // 混合番外：正文、小手机与网页卡片在同一节内任意穿插。
 // 这一段只做纯文本分节，不接触 DOM，渲染仍交给原有的正文／小手机／卡片流程。
 
-const PHONE_OPEN = /<\s*小手机\s*>/i;
-const PHONE_CLOSE = /<\s*\/\s*小手机\s*>/i;
+// 三个正则都用「从上次位置继续扫」的写法，整段只前后各扫一遍；
+// 早期版本每次切片再扫，遇到大量标签时会变成平方级耗时（几百 KB 就能卡住主线程一秒以上）。
+const PHONE_OPEN_SRC = '<\\s*(小手机)\\s*>';
+const HTML_OPEN_SRC = '<\\s*(?:瞬息[-_]?html|shunxi[-_]?html|网页卡片|html卡片)\\s*>';
+const OPEN_ANY_SRC = '<\\s*(小手机|瞬息[-_]?html|shunxi[-_]?html|网页卡片|html卡片)\\s*>';
+const PHONE_CLOSE_SRC = '<\\s*\\/\\s*小手机\\s*>';
 // 网页卡片使用 <瞬息-html>，同时兼容模型常见的几种写法。
-const HTML_OPEN = /<\s*(?:瞬息[-_]?html|shunxi[-_]?html|网页卡片|html卡片)\s*>/i;
-const HTML_CLOSE = /<\s*\/\s*(?:瞬息[-_]?html|shunxi[-_]?html|网页卡片|html卡片)\s*>/i;
+const HTML_CLOSE_SRC = '<\\s*\\/\\s*(?:瞬息[-_]?html|shunxi[-_]?html|网页卡片|html卡片)\\s*>';
 
 export const MIXED_MARKERS = { phone: '<小手机>', html: '<瞬息-html>' };
 export const MIXED_HTML_PLACEHOLDER = '（此处是一张已渲染的网页卡片，内容从略）';
@@ -27,21 +30,24 @@ export function parseMixed(content) {
     segments.push({ kind, text, closed });
   };
   let cursor = 0;
+  // 每次调用新建正则，避免模块级 lastIndex 在并发或嵌套调用里互相污染。
+  const openAny = new RegExp(OPEN_ANY_SRC, 'gi');
+  const closePhone = new RegExp(PHONE_CLOSE_SRC, 'gi');
+  const closeHtml = new RegExp(HTML_CLOSE_SRC, 'gi');
   while (cursor < source.length) {
-    const rest = source.slice(cursor);
-    const phone = PHONE_OPEN.exec(rest), html = HTML_OPEN.exec(rest);
-    const candidates = [];
-    if (phone) candidates.push({ kind: 'phone', at: cursor + phone.index, width: phone[0].length });
-    if (html) candidates.push({ kind: 'html', at: cursor + html.index, width: html[0].length });
-    if (!candidates.length) { push('prose', rest); break; }
-    candidates.sort((a, b) => a.at - b.at);
-    const next = candidates[0];
-    push('prose', source.slice(cursor, next.at));
-    const start = next.at + next.width, tail = source.slice(start);
-    const close = (next.kind === 'phone' ? PHONE_CLOSE : HTML_CLOSE).exec(tail);
-    const end = close ? start + close.index : source.length;
-    push(next.kind, trimBlock(source.slice(start, end)), Boolean(close));
-    cursor = close ? start + close.index + close[0].length : source.length;
+    openAny.lastIndex = cursor;
+    const open = openAny.exec(source);
+    if (!open) { push('prose', source.slice(cursor)); break; }
+    const kind = open[1] === '小手机' ? 'phone' : 'html';
+    push('prose', source.slice(cursor, open.index));
+    const start = open.index + open[0].length;
+    const closeRe = kind === 'phone' ? closePhone : closeHtml;
+    closeRe.lastIndex = start;
+    const close = closeRe.exec(source);
+    const end = close ? close.index : source.length;
+    push(kind, trimBlock(source.slice(start, end)), Boolean(close));
+    if (!close) break;
+    cursor = close.index + close[0].length;
   }
   return segments;
 }

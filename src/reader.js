@@ -92,15 +92,26 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     const vars = `--reader-bg:${t.background || '#F9F8F6'};--reader-ink:${t.color || '#1C1C1C'};--reader-font:${compiled.fontFamily};--reader-size:${t.fontSize || '17px'};--reader-scale:${readScale};--reader-leading:${t.lineHeight || '1.9'};--bubble:${t.bubble || '#fff'};--own-bubble:${t.ownBubble || '#E3E1DB'}`;
     let content;
     if (mode === 'mixed') {
-      content = readableMixedSegments(chapter.content).map((segment, order) => {
-        if (segment.kind === 'overflow') return `<p class="diagnostic">本节网页卡片已达 ${MIXED_CAPS.blocks} 张上限，后面的卡片只保留文字说明。</p>`;
+      const segments = readableMixedSegments(chapter.content);
+      const chapterCards = segments.filter(segment => segment.kind === 'html').length;
+      // 整篇一起渲染时还有多少张卡片的余量；导出 HTML 时不设限。
+      const bookRoom = chapterIndex === null && options.bookCap !== false ? Math.max(0, MIXED_CAPS.bookBlocks - bookCards) : Infinity;
+      // 超限的卡片统一在第一次出现的位置提示一次，后面不再逐张重复同样的说明。
+      const droppedCards = segments.filter(segment => segment.kind === 'overflow').length + Math.max(0, chapterCards - bookRoom);
+      let droppedShown = false, chapterRendered = 0;
+      const dropped = () => {
+        if (droppedShown) return '';
+        droppedShown = true;
+        return `<p class="diagnostic">这一节还有 ${droppedCards} 张网页卡片未展开（单节最多 ${MIXED_CAPS.blocks} 张、整篇一起读最多 ${MIXED_CAPS.bookBlocks} 张；导出 HTML 不受这两个上限影响）。</p>`;
+      };
+      content = segments.map((segment, order) => {
+        if (segment.kind === 'overflow') return dropped();
         if (segment.kind === 'phone') return `<div class="mixed-phone">${mixedPhone(segment.text, chapter, n)}</div>`;
         if (segment.kind === 'html') {
-          // 整篇一起渲染时再设一道总量上限，避免几十节各自满额堆出上百个 iframe；导出 HTML 时不设限。
-          if (chapterIndex === null && options.bookCap !== false && bookCards >= MIXED_CAPS.bookBlocks) return `<p class="diagnostic">整篇网页卡片已达 ${MIXED_CAPS.bookBlocks} 张上限，后面的卡片只保留文字说明。</p>`;
+          if (chapterRendered >= bookRoom) return dropped();
           const html = sanitizeCardHtml(segment.text, { scripts: cardScripts });
           if (!html) return '';
-          bookCards++; cards++;
+          bookCards++; chapterRendered++; cards++;
           return `<div class="mixed-card">${cardFrame(html, '', [], nonce, cardToken(), '网页卡片', cardScripts ? { scripts: true } : {})}</div>`;
         }
         const rendered = renderRegexProse(segment.text, chapter.readingRegex, story.snapshot || {}, n, nonce);
