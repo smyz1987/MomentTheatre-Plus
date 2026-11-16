@@ -279,8 +279,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   function render(switching = false) {
     if (!ready) { renderStartup(); return; }
     // 面板字体跟随酒馆全局字体：每次渲染读一次计算样式，不挂监听。
-    if (state.settings.followFont === false) root.style.removeProperty('--shunxi-tavern-font');
-    else root.style.setProperty('--shunxi-tavern-font', tavernFontFamily());
+    if (state.settings.followFont === false) { root.style.removeProperty('--shunxi-tavern-font'); root.style.removeProperty('--shunxi-head-font'); }
+    else { const tavernFont = tavernFontFamily(); root.style.setProperty('--shunxi-tavern-font', tavernFont); root.style.setProperty('--shunxi-head-font', tavernFont); }
     fullscreen.exit(false);
     filterObserver.disconnect(); filterLayouts.clear();
     for (const menu of [...openDropdowns]) setDropdownOpen(menu, false);
@@ -855,7 +855,9 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         const content = bareHtml ? `<瞬息-html>\n${text}\n</瞬息-html>` : text;
         const settings = clone(state.settings);
         const theme = resolveTheme(state, mode, settings.proseTheme);
-        const snapshot = current0?.snapshot || await host.snapshot(settings);
+        // 外部导入不需要角色上下文：没打开聊天时也要能落地，缺快照就留空。
+        let snapshot = current0?.snapshot || null;
+        if (!snapshot) { try { snapshot = await host.snapshot(settings); } catch { snapshot = null; } }
         const names = { character: snapshot?.character?.name, persona: snapshot?.persona?.name };
         const chapter = { content, sourceContent: '', readingRegex: [], stickerSnapshot: captureStickerSnapshot(content, settings.stickers, names), instruction: '', complete: true, mode, themeId: theme.id, readingTheme: captureReadingTheme(theme, mode), wordCount: contentLength(content, mode, names), targetWords: 0 };
         const title = (titleInput.value.trim() || (chosen ? chosen.name.replace(/\.(txt|md|markdown|text|html|htm)$/i, '').trim() : '') || '导入番外').slice(0, 120);
@@ -1722,7 +1724,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     if (launcher.parentElement !== root) return; // The collector owns docked positioning.
     const position = state?.settings.launcher || {}, size = 32;
     const x = Math.max(8, Math.min(innerWidth - size - 8, position.x ?? innerWidth - size - 18));
-    const y = Math.max(8, Math.min(innerHeight - size - 8, position.y ?? innerHeight * 0.65));
+    const y = Math.max(8, Math.min(innerHeight - size - 8, position.y ?? innerHeight * 0.65 - 44));
     launcher.style.left = `${x}px`; launcher.style.top = `${y}px`;
   }
   let drag = null, wasDragged = false;
