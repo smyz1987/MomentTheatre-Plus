@@ -132,9 +132,9 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   const startupStyle = el('style', {}, ':host{font:14px/1.7 system-ui;color:#282724}.shell{box-sizing:border-box;position:fixed;inset:0;width:min(960px,96vw);height:min(820px,94dvh);margin:auto;padding:calc(18px + env(safe-area-inset-top,0px)) 20px calc(18px + env(safe-area-inset-bottom,0px));border:0;background:#faf9f6;color:#282724;overflow:auto}.shell::backdrop{background:#0005}.topbar,.window-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{display:flex;align-items:center;gap:8px}.mark,.window-icon{display:inline-block;width:24px}.workspace{padding-top:24px}.startup-message{white-space:pre-wrap;overflow-wrap:anywhere}.startup-page button{padding:8px 20px}button{cursor:pointer}.tabs:empty{display:none}');
   shadow.append(startupStyle);
   window.addEventListener('message', onReaderMessage);
-  const launcher = button('', () => open(), { id: 'shunxi-floating-launcher', class: 'launcher shunxi-floating-ball', slot: 'launcher', 'data-theme': 'day', 'aria-label': '打开瞬息番外小剧场', title: '瞬息 · 拖动可移动，点击打开' });
+  const launcher = button('', () => open(), { id: 'shunxi-floating-launcher', class: 'launcher shunxi-floating-ball', slot: 'launcher', 'data-theme': 'day', 'aria-label': '打开瞬息SmYz版', title: '瞬息SmYz版 · 拖动可移动，点击打开' });
   launcher.append(mobius(), el('span', { class: 'unread', hidden: true }));
-  const dialog = el('dialog', { class: 'shell', 'aria-label': '瞬息番外小剧场' });
+  const dialog = el('dialog', { class: 'shell', 'aria-label': '瞬息SmYz版' });
   const content = el('div', { class: 'workspace' });
   const fullscreen = readerFullscreen(dialog, content);
   const status = el('div', { class: 'status', role: 'status', 'aria-live': 'polite' });
@@ -142,8 +142,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   const nav = el('nav', { class: 'tabs', 'aria-label': '页面', 'data-tour': 'nav' });
   const themeButton = button(windowIcon('day'), toggleTheme, { disabled: true, class: 'icon-button', 'aria-label': '切换日夜模式' });
   const tourButton = button('?', () => startTourGuide(), { class: 'icon-button tour-help', 'aria-label': '功能介绍', title: '功能介绍' });
-  const header = el('header', { class: 'topbar' }, el('div', { class: 'brand' }, mobius(), el('span', {}, '瞬息')), nav,
-    el('div', { class: 'window-actions' }, tourButton, themeButton, button(windowIcon('minimize'), () => dialog.close(), { class: 'icon-button', 'aria-label': '收起瞬息，生成继续' })));
+  const header = el('header', { class: 'topbar' }, el('div', { class: 'brand' }, mobius(), el('span', {}, '瞬息SmYz版')), nav,
+    el('div', { class: 'window-actions' }, tourButton, themeButton, button(windowIcon('minimize'), () => dialog.close(), { class: 'icon-button', 'aria-label': '收起瞬息SmYz版，生成继续' })));
   dialog.append(header);
   dialog.append(status, protection, content);
   // A slotted light-DOM button is discoverable by document selectors/hit testing.
