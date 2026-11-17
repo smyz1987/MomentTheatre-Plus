@@ -116,8 +116,9 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
   // 阅读字号缩放：1 与原来完全一致，只放大/缩小瞬息自己的阅读区文字。
   const readScale = (() => { const value = Number(options.readScale); return Number.isFinite(value) && value >= 0.8 && value <= 1.4 ? Math.round(value * 100) / 100 : 1; })();
   const fontCache = new Map();
-  // 整页底色取主题自己的聊天底色；没有纯色规则时保持透明，沿用原来的观感。
-  const pageBg = pageBackground(theme.css);
+  // 整页底色取主题自己的聊天底色；没有纯色规则时，用比纸面略深一档的同色系垫底，
+  // 否则纸卡和页面同色，全屏看就是一张平白，跟酒馆里“灰底上浮着浅纸卡”的层次对不上。
+  const pageBg = pageBackground(theme.css) || (theme.tokens?.background ? `color-mix(in srgb, ${theme.tokens.background} 86%, #8c8c8c)` : '');
   const resolveFont = themeFont => {
     const key = String(themeFont || '');
     if (!fontCache.has(key)) fontCache.set(key, effectiveFont(themeFont, followFont));
@@ -141,6 +142,9 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     const n = chapterIndex === null ? index + 1 : chapterIndex + 1;
     const mode = chapter.mode || story.mode, selectedTheme = chapter.readingTheme || themeForChapter?.(chapter) || theme, t = selectedTheme.tokens || {};
     const builtinProse = ['prose-stamp','prose-galaxy','prose-gufeng','prose-y2k'].includes(selectedTheme.id);
+    // 结构级皮肤：选中酒馆某一套时，正文改成 #chat > .mes > .mes_block > .mes_text 结构，
+    // 直接吃那套主题的原始规则；没有原始规则时仍走转换版，保证不白屏。
+    const native = typeof selectedTheme.native === 'string' ? selectedTheme.native : '';
     const chapterFont = resolveFont(t.fontFamily);
     const compiled = compileThemeCss(selectedTheme.css || '', chapterFont, n);
     // 旧主题可能存过十几 MB 的内嵌字体，渲染前先裁掉超大的 @font-face。
@@ -209,7 +213,11 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     const headerHeight = (compiled.css.match(/\.chapter::before\{[^}]*?height:([^!;}]+)/) || [])[1];
     // 头图按视口宽度收一收：桌面保持主题原高度，窄屏（手机）自动缩小，避免占掉半屏。
     const headerSize = headerHeight ? `min(${headerHeight.trim()}, 60vw)` : '';
-    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n${scopeChapterCss([compiled.css, builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : '', mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : '', '.paper{position:relative}', 'html,body{overflow-x:hidden;max-width:100%}', 'main{max-width:100%!important;width:100%!important;margin:0 auto!important}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{box-sizing:border-box!important;width:100%!important;max-width:min(620px,100%)!important;position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;height:auto!important;overflow:hidden!important;pointer-events:auto!important;margin-left:auto!important;margin-right:auto!important}', '.chapter.prose-chapter .paper,.chapter.mixed-chapter .paper{width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-top:0!important}', headerSize ? `.chapter::before{height:${headerSize}!important}` : '', headerSize ? `.chapter{padding-top:calc(${headerSize} + 20px)!important}` : ''].filter(Boolean).join('\n'), n)}</style>${mode !== 'phone' ? `<div class="paper">${heading}${content}</div>` : `${heading}${content}`}</section>`;
+    // 有原始规则时按酒馆消息结构落正文，主题的楼层线、纸卡、日期行都画在 .mes/.mes_text 上。
+    const bodyHtml = native && mode !== 'phone'
+      ? `<div class="tavern-chat"><div class="mes"><div class="mes_block"><div class="mes_text">${content}</div></div></div></div>`
+      : content;
+    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n${scopeChapterCss([compiled.css, native, builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : '', mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : '', '.paper{position:relative}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{padding-left:0!important;padding-right:0!important}', 'html,body{overflow-x:hidden;max-width:100%}', 'main{max-width:100%!important;width:100%!important;margin:0 auto!important}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{box-sizing:border-box!important;width:100%!important;max-width:min(620px,100%)!important;position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;height:auto!important;overflow:hidden!important;pointer-events:auto!important;margin-left:auto!important;margin-right:auto!important}', '.chapter.prose-chapter .paper,.chapter.mixed-chapter .paper{width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-top:0!important}', headerSize ? `.chapter::before{height:${headerSize}!important}` : '', headerSize ? `.chapter{padding-top:calc(${headerSize} + 20px)!important}` : ''].filter(Boolean).join('\n'), n)}</style>${mode !== 'phone' ? `<div class="paper">${heading}${bodyHtml}</div>` : `${heading}${content}`}</section>`;
   }).join('');
   // Static prose stays inert; scripted cards get only the trusted resize/error bridge.
   // 酒馆用 @import 载入的网络字体不会自动进入沙箱阅读区，这里把同一批字体样式表再挂一次。

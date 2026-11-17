@@ -384,6 +384,85 @@ function prefilterTavernCss(text) {
   return out.join('\n');
 }
 
+// 「读正文，不读标头」：酒馆美化常把整张角色档案大图挂在 .mes::before 上（铃兰是 350px），
+// 搬到阅读区就是每节顶上重复一张横幅，还占掉半屏。这里只摘掉这类带背景图的 ::before 标头条，
+// 纸卡、线圈、引用、日期行、竖线这些正文装饰照常保留。
+function stripHeaderArt(css) {
+  let out = '', i = 0, removed = 0;
+  while (i < css.length) {
+    const open = css.indexOf('{', i);
+    if (open < 0) { out += css.slice(i); break; }
+    const selector = css.slice(i, open);
+    let depth = 0, end = open;
+    for (; end < css.length; end++) {
+      const ch = css[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (!depth) break; }
+    }
+    const block = css.slice(open, end + 1);
+    const isHeader = /\.chapter\s*::before\s*(?:,|\{)/.test(selector + '{') && /background-image/i.test(block);
+    if (isHeader) { removed++; i = end + 1; continue; }
+    out += selector + block;
+    i = end + 1;
+  }
+  return { css: out, removed };
+}
+
+// 结构级皮肤：不再把酒馆选择器翻译成阅读区选择器，而是保留原始规则，
+// 由阅读区直接按 #chat/.mes/.mes_block/.mes_text 这层结构渲染。
+// 只留正文相关的顶层规则，摘掉标头大图、聊天部件和会隐藏正文的声明，最后按长度兜底。
+export function scopeTavernCss(css, limit = 26000) {
+  let source = prefilterTavernCss(css);
+  if (!source) return '';
+  source = dropChatChrome(source);
+  let out = '', i = 0;
+  while (i < source.length) {
+    const open = source.indexOf('{', i);
+    if (open < 0) break;
+    const selector = source.slice(i, open);
+    let depth = 0, end = open;
+    for (; end < source.length; end++) {
+      const ch = source[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (!depth) break; }
+    }
+    const block = source.slice(open, end + 1);
+    i = end + 1;
+    if (/^@/.test(selector.trim())) continue;
+    if (/display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?!\.)/i.test(block)) continue;
+    const sel = selector.replace(/#chat\b/g, '.tavern-chat').trim();
+    if (!sel) continue;
+    out += `${sel}${block}`;
+  }
+  if (out.length > limit) {
+    const cut = out.slice(0, limit), last = cut.lastIndexOf('}');
+    out = last > 0 ? cut.slice(0, last + 1) : '';
+  }
+  return out;
+}
+
+const CHROME_SELECTOR = /\.avatar|\bavatar\b|swipe_|textarea|\bbutton\b|mes_edit|extraMesButtonsHint|mesIDDisplay|tokenCounter|mes_timer|\.name_text/i;
+
+// 酒馆聊天区的按钮、头像、编辑框、楼层号在阅读区本来就不存在，留着只会把 CSS 撑爆、
+// 触发长度截断把真正的正文装饰挤掉。这里整条丢掉这些界面部件的规则。
+function dropChatChrome(css) {
+  let out = '', i = 0;
+  while (i < css.length) {
+    const open = css.indexOf('{', i);
+    if (open < 0) { out += css.slice(i); break; }
+    const selector = css.slice(i, open);
+    let depth = 0, end = open;
+    for (; end < css.length; end++) {
+      const ch = css[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (!depth) break; }
+    }
+    if (!CHROME_SELECTOR.test(selector)) out += selector + css.slice(open, end + 1);
+    i = end + 1;
+  }
+  return out;
+}
+
 // 把酒馆自定义 CSS 里能对应到阅读区选择器的规则转成主题 CSS；其余界面规则丢弃。
 export function convertTavernCss(css, limit = 28000) {
   const warnings = [];
@@ -421,16 +500,31 @@ export function convertTavernCss(css, limit = 28000) {
     .replace(/\s+::/g, '::')
     // 引号字符装饰在阅读区无关紧要，且是最容易让解析器引号错乱的声明，直接移除。
     .replace(/quotes\s*:[^;}]*/gi, '')
+    // 酒馆里那些「只在编辑态显示」的 .mes_text 会带 display:none，搬到阅读区会把正文整段藏掉。
+    .replace(/display\s*:\s*none\s*(?:!important)?\s*(?:;|(?=\}))|visibility\s*:\s*hidden\s*(?:!important)?\s*(?:;|(?=\}))|opacity\s*:\s*0\s*(?:!important)?\s*(?:;|(?=\}))?/gi, '')
   ;
   result = dropBrokenRules(result);
   // 整份校验会因个别规则里的怪写法（转义、老式属性）一起失败，退回“只到配色”。
   // 正常能过校验的主题不做逐条拆解，只有整份过不了时才逐条试，坏规则单条剔除。
   const validCss = text => { try { parseThemeCss(text); return true; } catch { return false; } };
   if (!validCss(result)) result = dropInvalidRules(result);
+  const header = stripHeaderArt(result);
+  result = header.css;
+  // 标头大图摘掉后，原美化给头像/头图预留的上百像素还会留在正文上方；把这些间距变量压回正常值。
+  if (header.removed) {
+    result = `.chapter{--mes-block-padding-top:0px;--header-to-text-distance:0px;--chat-top-padding:24px;--coil-pos-y:-6px}` + result;
+  }
+  // Case No.13 这类会把整张证据板挂在 .chapter::after 上并铺满整章（inset 全 0），
+  // 阅读区里就成了图片压着正文；整条丢掉，只留纸卡本身。
+  result = result.replace(/\.chapter::after\{[^}]*(?:inset\s*:\s*0|top\s*:\s*0[^}]*bottom\s*:\s*0)[^}]*\}/gi, '');
+  // 酒馆里正文列宽是聊天区的固定像素，搬到阅读区会把一行挤成几个字；改成跟着阅读区走。
+  result = `.chapter{--mes-block-width:100%!important;--chat-width:100%!important}` + result;
+  result = dropChatChrome(result);
   // 酒馆里 .mes 的百分比内边距是按头像/大图位置算的，搬到阅读区会把正文推到半屏以下，直接归零。
   result = result.replace(/(\.chapter\{)([^}]*)\}/g, (all, head, body) => head + body.replace(/(padding|margin):[^;}]*%/gi, (m, prop) => `${prop}:0`) + '}');
-  // 有整幅贴图的主题会把 .chapter 设成透明，正文直接压在图上；给正文补一层半透明纸面，既保留贴图又不影响阅读。
-  if (/\.chapter[^{]*\{[^}]*background-image[^}]*url\(/i.test(result)) {
+  // 有整幅贴图的主题会把 .chapter 设成透明，正文直接压在图上；Case No.13 这类把证据板挂在
+  // .chapter::after 上，也要算进来。给正文补一层半透明纸面，既保留贴图又不影响阅读。
+  if (/\.chapter[^{]*\{[^}]*background-image[^}]*url\(/i.test(result) || /\.chapter[^{]*::after[^{]*\{[^}]*background-image/i.test(result)) {
     result += '.paper{position:relative;z-index:1;background:color-mix(in srgb,var(--reader-bg) 90%,transparent);backdrop-filter:blur(2px)}';
   }
   // 变量定义挂在 .chapter 上，正文与小手机章节共用同一套类名，装饰里的 var() 才拿得到值。
@@ -468,11 +562,18 @@ export function convertTavernTheme(raw, mode = 'prose', { withCss = false } = {}
     try { compileThemeCss(css, tokens.fontFamily); return true; } catch { return false; }
   };
   const ink = parseColor(raw.main_text_color), tint = parseColor(raw.blur_tint_color), chatTint = parseColor(raw.chat_tint_color);
-  const under = ink && luminance(ink) > 0.5 ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
+  // 半透明的 chat 底色要压在不透明的 tint 上，而不是按文字明暗去猜黑白：
+  // Case No.13 的文字是 173 灰、chat 底色是白色 50%，以前会压成中灰，正文看起来就“不是那套”。
+  const under = tint && tint.a > 0.95 ? tint : (ink && luminance(ink) > 0.5 ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
   const paper = flatten(chatTint && chatTint.a > 0.05 ? chatTint : tint, under);
   const tokens = {};
   if (paper) tokens.background = cssColor(paper);
-  const foreground = ink ? flatten(ink, paper) : null;
+  let foreground = ink ? flatten(ink, paper) : null;
+  // 主题的正文色在酒馆里有壁纸和模糊层垫着，搬到纯色纸面上可能变成浅灰压浅灰；对比不足时回退到黑白。
+  if (foreground && paper && contrastRatio(foreground, paper) < 3.6) {
+    const dark = { r: 43, g: 43, b: 43, a: 1 }, light = { r: 242, g: 242, b: 242, a: 1 };
+    foreground = contrastRatio(dark, paper) >= contrastRatio(light, paper) ? dark : light;
+  }
   if (foreground) tokens.color = cssColor(foreground);
   const own = parseColor(raw.user_mes_blur_tint_color), other = parseColor(raw.bot_mes_blur_tint_color);
   // 夜间主题的气泡色叠到浅色底上会变成白底白字，所以先校验对比度，不合格就用正文色相对纸面推一档气泡色。

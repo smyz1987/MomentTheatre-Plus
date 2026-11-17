@@ -31,7 +31,9 @@ export function validateTheme(raw, { allowBuiltInId = false } = {}) {
     if (cssKey) { if (verifiedCss.size >= 16) verifiedCss.delete(verifiedCss.values().next().value); verifiedCss.add(cssKey); }
   }
   return { id: typeof raw.id === 'string' && (/^custom-[a-z0-9-]{1,80}$/.test(raw.id) || allowBuiltInId && ([...BUILTIN_THEMES, ...LEGACY_THEMES].some(t => t.id === raw.id && t.mode === raw.mode) || isTavernThemeId(raw.id))) ? raw.id : `custom-${createId()}`,
-    name: raw.name.trim().slice(0, 60), mode: raw.mode, tokens, css };
+    name: raw.name.trim().slice(0, 60), mode: raw.mode, tokens, css,
+    // 结构级皮肤用的原始规则：跟主题一起存，下次打开不用再读一次 27MB 的设置。
+    native: typeof raw.native === 'string' && raw.native.length <= 30000 && !/[<>]/.test(raw.native) ? raw.native : undefined };
 }
 export function resolveTheme(state, mode, themeId) {
   const target = themeMode(mode);

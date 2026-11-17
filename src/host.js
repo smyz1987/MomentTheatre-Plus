@@ -3,7 +3,7 @@ import { clone, id } from './model.js';
 import { mountExtensionPanel } from './extension-panel.js';
 import { mountWandEntry } from './wand-entry.js';
 import { normalizeRegexRules } from './preset-regex.js';
-import { convertTavernCss } from './tavern-look.js';
+import { convertTavernCss, scopeTavernCss } from './tavern-look.js';
 
 export function normalizeEndpoint(value) {
   let url;
@@ -104,6 +104,23 @@ export class TavernHost {
       return slim;
     }).filter(item => item.name);
     return this.themesCache;
+  }
+  // 结构级皮肤要的是“原封不动”的那套规则：只在选中某一套时读一次，读完缓存在本扩展里。
+  // 整个主题库约 20MB 不常驻内存，这里最多留 6 套（每套几十 KB）。
+  async tavernNativeCss(name, { refresh = false } = {}) {
+    const key = String(name || '');
+    if (!key) return '';
+    this.nativeCache ||= new Map();
+    if (!refresh && this.nativeCache.has(key)) return this.nativeCache.get(key);
+    const headers = { ...this.getContext().getRequestHeaders(), 'Content-Type': 'application/json' };
+    const response = await fetch('/api/settings/get', { method: 'POST', headers, body: '{}' });
+    if (!response.ok) throw new Error(`酒馆主题库读取失败：HTTP ${response.status}。`);
+    const data = await response.json().catch(() => null);
+    const item = (Array.isArray(data?.themes) ? data.themes : []).find(theme => String(theme?.name || '') === key);
+    const native = scopeTavernCss(String(item?.custom_css || ''));
+    if (this.nativeCache.size >= 6) this.nativeCache.delete(this.nativeCache.keys().next().value);
+    this.nativeCache.set(key, native);
+    return native;
   }
   getKey() { try { const saved = localStorage.getItem(this.sessionKey); if (saved) return saved; const previous = sessionStorage.getItem(this.sessionKey) || ''; if (previous) this.setKey(previous); return previous; } catch { return ''; } }
   setKey(key) { try { if (key) localStorage.setItem(this.sessionKey, key); else localStorage.removeItem(this.sessionKey); sessionStorage.removeItem(this.sessionKey); } catch { throw new Error('无法保存密钥，请检查浏览器存储权限。'); } }

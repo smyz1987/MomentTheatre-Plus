@@ -301,6 +301,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   function renderNav() { nav.replaceChildren(...[['generate', '番外'], ['scripts', '剧本'], ['library', '故事'], ['themes', '美化'], ['settings', '设置']].map(([value, title]) => button(title, () => changeTab(value), { 'aria-current': value === tab ? 'page' : null, class: value === tab ? 'active' : '' }))); }
   function render(switching = false) {
     if (!ready) { renderStartup(); return; }
+    ensureLibraryNative();
     // 面板字体跟随酒馆全局字体：每次渲染读一次计算样式，不挂监听。
     if (state.settings.followFont === false) { root.style.removeProperty('--shunxi-tavern-font'); root.style.removeProperty('--shunxi-head-font'); }
     else { const tavernFont = tavernFontFamily(); root.style.setProperty('--shunxi-tavern-font', tavernFont); root.style.setProperty('--shunxi-head-font', tavernFont); }
@@ -1267,8 +1268,10 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const applyLibraryTheme = (mode, name) => action(async () => {
       const source = (tavernLibrary || []).find(item => item.name === name);
       if (!source) throw new Error('这个主题不在酒馆主题库里了，请重新读取。');
+      // 酒馆主题库只把「已转换好、只含阅读区规则」的 CSS 留在内存里，原始 custom_css 读取时就丢掉了。
+      // 这里直接用它，不再二次转换：二次转换会丢掉装饰，只剩配色，看起来就像换了个无关主题。
       const converted = convertTavernTheme(source, mode, { withCss: false });
-      const css = fitCss(state.settings.libraryCss === false ? converted.css : [converted.css, source.css].filter(Boolean).join('\n'));
+      const css = fitCss(state.settings.libraryCss === false ? converted.css : (source.css || converted.css));
       // 装饰规则偶尔会有阅读区接不住的写法，兜底退回只用配色，不让选择直接失败。
       let theme;
       try {
@@ -1316,6 +1319,32 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   function selectReadingTheme(mode, themeId) {
     state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'] = themeId;
     if (isTavernThemeId(themeId)) primeLiveDecor();
+  }
+  // 结构级皮肤：选中的主题库美化还没拿到原始规则时后台补一次；拿到就重绘。
+  // 只对当前在用的那一两套发力，其余主题不预载，内存和酒馆响应都不受影响。
+  const nativePending = new Set();
+  function ensureLibraryNative() {
+    if (state.settings.libraryCss === false || !host.tavernNativeCss) return;
+    for (const mode of ['prose', 'phone']) {
+      const key = mode === 'phone' ? 'phoneTheme' : 'proseTheme';
+      const theme = state.themes.find(t => t.id === state.settings[key] && t.id.startsWith(`custom-lib-${mode}-`));
+      if (!theme || theme.native) continue;
+      const name = theme.name.replace(/·(小手机|正文)$/, '');
+      if (nativePending.has(name)) continue;
+      nativePending.add(name);
+      // 推迟到首屏交互之后再去读设置，避免刚打开酒馆就抢带宽和主线程。
+      setTimeout(() => {
+        host.tavernNativeCss(name).then(native => {
+          nativePending.delete(name);
+          if (!native || disposed) return;
+          const stored = state.themes.find(t => t.id === theme.id);
+          if (!stored) return;
+          stored.native = native;
+          scheduleSave();
+          render();
+        }).catch(() => nativePending.delete(name));
+      }, 1200);
+    }
   }
   async function refreshCatalog(showNotice = true) {
     if (!ready || disposed || !store.health.writable) return;
