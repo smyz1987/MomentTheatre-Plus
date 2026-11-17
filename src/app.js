@@ -1268,10 +1268,9 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const applyLibraryTheme = (mode, name) => action(async () => {
       const source = (tavernLibrary || []).find(item => item.name === name);
       if (!source) throw new Error('这个主题不在酒馆主题库里了，请重新读取。');
-      // 酒馆主题库只把「已转换好、只含阅读区规则」的 CSS 留在内存里，原始 custom_css 读取时就丢掉了。
-      // 这里直接用它，不再二次转换：二次转换会丢掉装饰，只剩配色，看起来就像换了个无关主题。
-      const converted = convertTavernTheme(source, mode, { withCss: false });
-      const css = fitCss(state.settings.libraryCss === false ? converted.css : (source.css || converted.css));
+      // 主题库读取时不再一次转完 427 套；这里只转选中的这一套（13–50 ms），带装饰也带配色。
+      const converted = convertTavernTheme({ ...source, custom_css: source.raw || '' }, mode, { withCss: state.settings.libraryCss !== false });
+      const css = fitCss(converted.css);
       // 装饰规则偶尔会有阅读区接不住的写法，兜底退回只用配色，不让选择直接失败。
       let theme;
       try {
