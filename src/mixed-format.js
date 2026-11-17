@@ -69,9 +69,43 @@ export function parseMixed(content) {
     if (!close) break;
     cursor = close.index + close[0].length;
   }
-  return segments;
+  return mergeProse(segments.flatMap(segment => segment.kind === 'prose' ? splitCardPhone(segment.text) : [segment]));
 }
-
+function mergeProse(segments) {
+  const out = [];
+  for (const segment of segments) {
+    const last = out.at(-1);
+    if (last && last.kind === 'prose' && segment.kind === 'prose') last.text += segment.text;
+    else out.push({ ...segment });
+  }
+  return out;
+}
+// 角色卡经常不带 <小手机> 包裹，直接用 [和XX的聊天] + [对方消息|…] 写聊天。
+// 混合模式里把这种连续块认成小手机，避免它被当正文显示成一串方括号。
+const CARD_MESSAGE_RE = /^[\[［]\s*(?:对方消息|角色消息|我方消息|用户消息|系统消息)\s*[|｜]/;
+const CARD_TITLE_RE = /^[\[［]\s*和[^\]｜|]{1,40}的聊天\s*[\]］]$/;
+function splitCardPhone(text) {
+  const lines = String(text ?? '').split(/(?<=\n)/);
+  const out = []; let block = [], blockHasMessage = false;
+  const flush = () => {
+    if (block.length) out.push({ kind: blockHasMessage ? 'phone' : 'prose', text: block.join('') });
+    block = []; blockHasMessage = false;
+  };
+  for (const line of lines) {
+    const bare = line.trim();
+    if (CARD_MESSAGE_RE.test(bare) || CARD_TITLE_RE.test(bare)) {
+      block.push(line);
+      if (CARD_MESSAGE_RE.test(bare)) blockHasMessage = true;
+      continue;
+    }
+    // 手机上消息之间偶尔空一行，空行留在块里；遇到正文就收束。
+    if (block.length && !bare) { block.push(line); continue; }
+    flush();
+    out.push({ kind: 'prose', text: line });
+  }
+  flush();
+  return out.length ? out : [{ kind: 'prose', text }];
+}
 export const hasMixedBlocks = content => parseMixed(content).some(segment => segment.kind !== 'prose');
 
 // 混合番外的字数按“可读文字”估算：网页卡片里的样式与标签不算，小手机里的对话文字算。

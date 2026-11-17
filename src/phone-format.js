@@ -34,10 +34,11 @@ export const phoneStatus = value => lookup(statusMap, scalar(value).trim().toLow
 function normalizeMessage(raw, names) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const group = scalar(raw.group).trim().slice(0, 120);
+  const label = scalar(raw.label).trim().slice(0, 120);
   const member = group && /^成员[:：](.+)$/u.exec(raw.sender || '');
   const type = typeOf(raw.type || 'text'), sender = member ? 'char' : senderOf(raw.sender, names);
   if (!type || !sender) return null;
-  const item = { type, sender, ...(group ? { group, ...(sender === 'char' ? { speaker: scalar(member?.[1] || raw.speaker || names.character || '角色').trim().slice(0, 120) } : {}) } : {}) };
+  const item = { type, sender, ...(group ? { group, ...(sender === 'char' ? { speaker: scalar(member?.[1] || raw.speaker || names.character || '角色').trim().slice(0, 120) } : {}) } : {}), ...(!group && label ? { label } : {}) };
   for (const key of ['time', 'text', 'duration', 'amount', 'status', 'url', 'title', 'description', 'source', 'thumbnail', 'address', 'sticker']) {
     const value = key === 'url' && type === 'sticker' ? localStickerUrl(raw[key]) || scalar(raw[key]) : scalar(raw[key]); if (value) item[key] = value;
   }
@@ -251,7 +252,7 @@ export function parsePhoneReport(content, names = {}) {
 }
 function parsePhoneBody(text, names) {
   const lines = messageRecords(text);
-  let group = names.group || '';
+  let group = names.group || '', label = names.label || '';
   const lineRows = [];
   const parsedLines = new Set();
   for (const line of lines) {
@@ -259,10 +260,13 @@ function parsePhoneBody(text, names) {
     if (parts[0]?.trim() === '群聊' && parts.length === 2) { group = parts[1].trim().slice(0, 120) || '群聊'; parsedLines.add(line); continue; }
     if (parts[0]?.trim() === '私聊' && parts.length === 1) { group = ''; parsedLines.add(line); continue; }
     // 角色卡常见的标题行：[和谢嬴的聊天]。它只是这段对话的标题，不是群聊，
-    // 所以不写进 group（否则会按群聊显示发言人姓名和群头像），只当作已解析行跳过。
-    if (parts.length === 1 && /^和\s*[^|]{1,40}?\s*的聊天$/.test(parts[0].trim())) { parsedLines.add(line); continue; }
+    // 所以不写进 group（否则会按群聊显示发言人姓名和群头像），只用于手机顶栏标题。
+    if (parts.length === 1) {
+      const chatTitle = /^和\s*(?:「|“|"|『)?([^|]{1,40}?)(?:」|”|"|』)?\s*的聊天$/.exec(parts[0].trim());
+      if (chatTitle) { label = chatTitle[1].trim().slice(0, 120); parsedLines.add(line); continue; }
+    }
     const row = lineMessage(line, { ...names, group });
-    if (row) { lineRows.push({ ...row, ...(group ? { group } : {}) }); parsedLines.add(line); }
+    if (row) { lineRows.push({ ...row, ...(group ? { group } : {}), ...(!group && label ? { label } : {}) }); parsedLines.add(line); }
   }
   const source = lineRows.length ? { rows: lineRows, recovered: false } : jsonMessages(text);
   if (source.rows.length > 2000) throw new Error('小手机每节最多 2000 条消息。');
@@ -272,6 +276,7 @@ function parsePhoneBody(text, names) {
     const item = normalizeMessage(raw, names);
     if (!item) { rejected++; continue; }
     if (!item.time && time) item.time = time;
+    if (!item.group && !item.label && label) item.label = label;
     messages.push(item);
   }
   if (lineRows.length) rejected += lines.filter(line => {
@@ -280,7 +285,7 @@ function parsePhoneBody(text, names) {
     return parts.length>1 && (senderOf(parts[0]?.trim(),names) || /^\d{1,2}:\d{2}/.test(parts[1]?.trim()));
   }).length;
   const warnings = rejected ? [`本次有 ${rejected} 条小手机消息无法显示，原文已保留，可打开编辑查看。`] : [];
-  return { messages, warnings, group, recognized: source.rows.length > 0 || !source.recovered };
+  return { messages, warnings, group, label, recognized: source.rows.length > 0 || !source.recovered };
 }
 export function parsePhone(content, names) {
   const result = parsePhoneReport(content, names);
@@ -295,29 +300,39 @@ export function savePhoneEdit(chapter, content, library = [], names = {}) {
   const parsed = parsePhoneReport(body, names);
   const previous = parsePhoneReport(chapter.content, names).messages;
   const embedded = previous.filter(m => m.type === 'sticker' && safeStickerUrl(m.url)).map(m => ({ name: m.sticker || m.text, url: m.url, description: m.text }));
-  const catalog = new Map([...activeStickers(library), ...activeStickers(chapter.stickerSnapshot), ...embedded].map(item => [item.name, item]));
-  const stickerNames = new Set(parsed.messages.filter(m => m.type === 'sticker').map(m => m.sticker || m.text));
-  chapter.stickerSnapshot = [...catalog.values()].filter(item => stickerNames.has(item.name));
+  const map = stickerCatalog([...activeStickers(library), ...activeStickers(chapter.stickerSnapshot), ...embedded]);
+  const used = [];
+  for (const m of parsed.messages) {
+    if (m.type !== 'sticker') continue;
+    const row = stickerMatch(map, m.sticker || m.text);
+    if (row && !used.some(item => item.name === row.name)) used.push(row);
+  }
+  chapter.stickerSnapshot = used;
   chapter.content = body;
   chapter.sourceContent = body !== content ? content : '';
   return parsed;
 }
 const encode = value => scalar(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\[/g, '\\[').replace(/\]/g, '\\]').replace(/\r?\n/g, '\\n');
 export function serializePhone(messages) {
-  let previousGroup = '';
+  let previousGroup = '', previousLabel = '';
   return messages.map(message => {
     const m = { ...message };
     // Local image bytes belong in the frozen sticker catalogue, never in model context.
     if (m.type === 'sticker' && localStickerUrl(m.url)) delete m.url;
     let prefix = '';
+    if (!m.group && m.label && m.label !== previousLabel) { prefix += '[和' + encode(m.label) + '的聊天]\n'; previousLabel = m.label; }
     if ((m.group || '') !== previousGroup) {
-      prefix = m.group ? '[群聊|' + encode(m.group) + ']\n' : '[私聊]\n'; previousGroup = m.group || '';
+      prefix = prefix + (m.group ? '[群聊|' + encode(m.group) + ']\n' : '[私聊]\n'); previousGroup = m.group || '';
     }
     if (m.group && m.sender === 'char') m.sender = '成员:' + (m.speaker || '角色');
     return prefix + serializeMessage(m);
   }).join('\n');
 }
 function serializeMessage(m) {
+    if (m.type === 'sticker') {
+      const name = encode(m.sticker || m.text || '');
+      return '[' + [m.sender, m.time || '', labels.sticker, name, ...(m.url && !localStickerUrl(m.url) ? [encode(m.url)] : [])].join('|') + ']';
+    }
     if (m.type === 'transfer' && (!m.status || ['pending', '待收款'].includes(m.status))) return '[' + [m.sender, m.time || '', m.amount, m.text || ''].map(encode).join('|') + ']';
     if (['call', 'video'].includes(m.type)) {
       const action = Object.keys(callLabels).find(k => callLabels[k][0] === m.type && callLabels[k][1] === (m.status || (m.duration ? '已结束' : '发起')));
@@ -334,15 +349,22 @@ function stickerKeys(name) {
   const keys = [raw, base, base.replace(/[A-Za-z0-9]{5,10}$/, '')];
   return keys.map(k => k.trim().toLowerCase()).filter(Boolean);
 }
-export function resolveMessageStickers(messages, library, { embedLocal = true } = {}) {
+function stickerCatalog(library) {
   const map = new Map();
   for (const row of activeStickers(library)) {
     for (const key of stickerKeys(row.name)) if (!map.has(key)) map.set(key, row);
     const file = (scalar(row.url).split(/[?#]/)[0].split('/').pop() || '').replace(/\.(?:png|jpg|jpeg|gif|webp|avif|bmp)$/i, '');
     for (const key of stickerKeys(file)) if (!map.has(key)) map.set(key, row);
   }
+  return map;
+}
+function stickerMatch(map, name) {
+  return map.get(name) || stickerKeys(name).map(k => map.get(k)).find(Boolean);
+}
+export function resolveMessageStickers(messages, library, { embedLocal = true } = {}) {
+  const map = stickerCatalog(library);
   return messages.map(m => {
-    const sticker = m.type === 'sticker' && (map.get(m.sticker || m.text) || stickerKeys(m.sticker || m.text).map(k => map.get(k)).find(Boolean));
+    const sticker = m.type === 'sticker' && stickerMatch(map, m.sticker || m.text);
     return sticker && (embedLocal || !localStickerUrl(sticker.url)) && !safeStickerUrl(m.url) ? { ...m, url: sticker.url, text: m.text || sticker.description || sticker.name } : m;
   });
 }
@@ -350,8 +372,13 @@ export function captureStickerSnapshot(content, library, names = {}) {
   let messages;
   try { messages = parsePhoneReport(content, names).messages; }
   catch { return []; } // A display parse failure must never prevent saving the raw reply.
-  const used = new Set(messages.filter(m => m.type === 'sticker').map(m => m.sticker || m.text));
-  return activeStickers(library).filter(item => used.has(item.name));
+  const map = stickerCatalog(library), used = [];
+  for (const m of messages) {
+    if (m.type !== 'sticker') continue;
+    const row = stickerMatch(map, m.sticker || m.text);
+    if (row && !used.some(item => item.name === row.name)) used.push(row);
+  }
+  return used;
 }
 export function phonePrompt(library = []) {
   return `【小手机消息】只在 <小手机> 和 </小手机> 之间输出消息，不写作品标题，不加代码围栏。每行一条。先根据本次剧情判断会话：用户明确要求优先；已有群聊即使只有两人发言也保持群聊；未指定时，我方与一名对方直接交流用私聊，三名及以上人物在同一会话交流用群聊。被提及、引用的人不算参与者，不因为多人卡就自动群聊，不为凑人数增加人物。

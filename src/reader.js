@@ -66,8 +66,8 @@ export function safeImage(value) {
 }
 function phoneHtml(messages, characterName, appearance, chapterNumber) {
   const look = phoneAppearance(appearance);
-  const group = messages[0]?.group || '';
-  characterName = group || look.remark || characterName;
+  const group = messages[0]?.group || '', label = messages[0]?.label || '';
+  characterName = group || look.remark || label || characterName;
   // Large data URLs can exceed the browser's custom-property value limit.
   // One scoped image declaration per side avoids that limit and duplication per message.
   const avatars = [['.own', look.userAvatar], [':not(.own)', group ? '' : look.charAvatar]].filter(([, url]) => url).map(([side, url]) => `${group ? '.phone.phone-group' : '.phone:not(.phone-group)'} .message${side} .message-avatar{background-image:url("${url.replace(/["\\<>]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ')}")!important}`).join('');
