@@ -10,7 +10,10 @@ function resourceUrl(value) {
 }
 
 export function parseThemeCss(css, context = 'stylesheet') {
-  if (typeof css !== 'string' || css.length > 30000 || /[<>]|expression\s*\(|javascript:/i.test(css)) throw new Error('主题 CSS 不能包含 HTML、脚本或尖括号，且最多 30,000 字符。');
+  if (typeof css !== 'string' || css.length > 30000) throw new Error('主题 CSS 不能包含 HTML、脚本或尖括号，且最多 30,000 字符。');
+  // url() 内部（尤其 SVG data URI）会自带 < > 尖括号，先整体移出再做危险关键字检查。
+  const stripped = css.replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)#]*)\s*\)/gi, 'url(#)');
+  if (/[<>]|expression\s*\(|javascript:/i.test(stripped)) throw new Error('主题 CSS 不能包含 HTML、脚本或尖括号，且最多 30,000 字符。');
   let ast;
   try { ast = parse(css, { context, parseCustomProperty: true, onParseError: error => { throw error; } }); }
   catch (error) { throw new Error(`主题 CSS 格式不正确：${error.message}`); }

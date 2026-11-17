@@ -8,7 +8,7 @@ export function scopeCss(css, root, rootClasses = []) {
     text = text.replace(/:scope\b/g, root);
     if (text.startsWith(root)) return text;
     const lead = rootPattern ? text.match(rootPattern) : null;
-    if (lead) return root + text.slice(lead[0].length);
+    if (lead) return `${root}${text}`;
     return `${root} ${text}`;
   };
   const mapSelector = selector => selector.split(',').map(mapPart).filter(Boolean).join(',');

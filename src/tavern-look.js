@@ -263,17 +263,47 @@ function mapSelectorPart(part) {
 function collectCustomProps(css) {
   const vars = new Map();
   const text = String(css || '');
-  // 值里可能带 url(data:image/png;base64,...)，先整体吃掉 url(...) 再按分号切分。
-  const rule = /--([A-Za-z0-9_-]+)\s*:\s*((?:url\(\s*[^)]*\)|[^;{}<>\\])+)/gi;
+  // 值里可能带 url(...) 或 \A 这类转义换行，先整体吃掉 url(...) 与转义序列，再按分号切分。
+  const rule = /--([A-Za-z0-9_-]+)\s*:\s*((?:url\(\s*[^)]*\)|\\.|[^;{}<>\\])+)/gi;
   let match;
   while ((match = rule.exec(text))) {
     let value = match[2].replace(/\/\*[\s\S]*?\*\//g, '').trim();
     if (!value || value.length > 800 || /expression\s*\(/i.test(value)) continue;
+    // 字符串引号不配对的变量不能挂出去，否则会把整条样式表拖进字符串里失效。
+    const dq = (value.match(/"/g) || []).length;
+    const sq = (value.match(/'/g) || []).length;
+    if (dq % 2 || sq % 2) continue;
     const important = /!important$/i.test(value);
     if (important) value = value.replace(/!important$/i, '').trim();
     vars.set(`--${match[1]}`, value + (important ? '!important' : ''));
   }
   return vars;
+}
+
+// 个别主题的 quotes / content 写法引号嵌套不规范，经解析器重生成后引号不配对，
+// 会把整条样式表后面的规则都拖进字符串里失效。这里按顶层规则逐条校验，引号不配对的整条剔除。
+function dropBrokenRules(css) {
+  const out = [];
+  let i = 0;
+  const n = css.length;
+  while (i < n) {
+    let depth = 0, brace = -1, inStr = null, j = i;
+    for (; j < n; j++) {
+      const ch = css[j];
+      if (inStr) { if (ch === '\\') { j++; continue; } if (ch === inStr) inStr = null; continue; }
+      if (ch === '"' || ch === "'") { inStr = ch; continue; }
+      if (ch === '{') { if (depth === 0) brace = j; depth++; }
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+    }
+    if (brace < 0) { out.push(css.slice(i)); break; }
+    const rule = css.slice(i, j + 1);
+    const body = css.slice(brace + 1, j);
+    const dq = (body.match(/"/g) || []).length;
+    const sq = (body.match(/'/g) || []).length;
+    if (dq % 2 === 0 && sq % 2 === 0) out.push(rule);
+    i = j + 1;
+  }
+  return out.join('');
 }
 
 // 把酒馆自定义 CSS 里能对应到阅读区选择器的规则转成主题 CSS；其余界面规则丢弃。
@@ -317,7 +347,11 @@ export function convertTavernCss(css, limit = 28000) {
   // 丢掉角色档案大头图，把聊天标题的线圈改挂到整章顶部，并修正去掉内层包装后残留的空格。
   result = result
     .replace(/\.paragraph::after(?=[^{]*\{[^}]*var\(\s*--coil-url\s*\))/g, '.chapter::after')
-    .replace(/\s+::/g, '::');
+    .replace(/\s+::/g, '::')
+    // 引号字符装饰在阅读区无关紧要，且是最容易让解析器引号错乱的声明，直接移除。
+    .replace(/quotes\s*:[^;}]*/gi, '')
+  ;
+  result = dropBrokenRules(result);
   // 变量定义挂在 .chapter 上，正文与小手机章节共用同一套类名，装饰里的 var() 才拿得到值。
   const varBlock = vars.size ? `.chapter{position:relative;${[...vars].map(([key, value]) => `${key}:${value}`).join(';')}}` : '';
   if (varBlock) result = varBlock + result;
@@ -330,7 +364,7 @@ export function convertTavernCss(css, limit = 28000) {
     warnings.push('原美化 CSS 的变量定义过长，已跳过装饰转换，只套用配色与字体。');
   }
   if (result) {
-    try { parseThemeCss(result); } catch { return { css: '', warnings: [...warnings, '转换出的装饰样式未通过校验，已只套用配色与字体。'], kept: 0 }; }
+    try { parseThemeCss(result); } catch (e) { return { css: '', warnings: [...warnings, '转换出的装饰样式未通过校验：' + (e?.message || '').slice(0, 120)], kept: 0 }; }
   }
   const kept = (result.match(/\}/g) || []).length;
   if (!kept) warnings.push('这份美化主要写的是酒馆界面，没有可套用到阅读区的规则，已只套用配色与字体。');
