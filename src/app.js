@@ -1401,12 +1401,22 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const paint = () => {
       const characterKey = state.settings.bookCharacter;
       draft = clone(state.settings[field]); caption.textContent = selectedNames(); caption.title = caption.textContent;
-      const body = el('div', {}, options.length ? options.map(option => {
+      const rows = options.map(option => {
         const input = el('input', { type: isBook ? 'checkbox' : 'radio', name: isBook ? null : 'shunxi-preset-choice', value: option.value, checked: isBook ? draft.includes(option.value) : draft === option.value, 'aria-label': `${isBook ? '使用世界书' : '使用预设'}${option.label}`, onChange: e => {
           draft = isBook ? e.target.checked ? [...new Set([...draft, option.value])] : draft.filter(v => v !== option.value) : option.value;
         } });
-        return choiceRow(input, option.label, option.value === '__none__' ? null : sourceArrow(kind, option.value, option.label));
-      }) : el('p', { class: 'muted' }, `当前酒馆没有${title}。`));
+        return { label: option.label, row: choiceRow(input, option.label, option.value === '__none__' ? null : sourceArrow(kind, option.value, option.label)) };
+      });
+      // 世界书可能几十上百本，给多选列表一个搜索框，只按名字过滤，不改动已勾选的选择。
+      const list = el('div', { class: isBook ? 'source-list' : null }, rows.map(item => item.row));
+      const empty = isBook ? el('p', { class: 'muted source-list-empty', hidden: true }, '没有匹配的世界书。') : null;
+      const search = isBook ? el('input', { type: 'search', placeholder: '搜索世界书', 'aria-label': '搜索世界书', onInput: e => {
+        const q = e.target.value.trim().toLowerCase();
+        let shown = 0;
+        for (const item of rows) { const hide = Boolean(q) && !item.label.toLowerCase().includes(q); item.row.hidden = hide; if (!hide) shown++; }
+        empty.hidden = shown > 0;
+      } }) : null;
+      const body = el('div', { class: 'source-body' }, rows.length ? [search, list, empty] : el('p', { class: 'muted' }, `当前酒馆没有${title}。`));
       sourceMenuControls(menu, panel, body, () => JSON.stringify(draft) !== JSON.stringify(state.settings[field]), () => {
         if (isBook && characterKey !== state.settings.bookCharacter) throw new Error('角色已切换，请关闭列表后重新选择世界书。');
         const patch = { [field]: draft }, key = state.settings.bookCharacter;
