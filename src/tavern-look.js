@@ -224,18 +224,20 @@ function insideKeyframes(node) {
 const ACCEPT_SELECTOR = [
   [/^#chat(?=$|[.:>+~\s[,])/i, '.chapter'],
   [/^\.mes_text(?=$|[.:>+~\s[,])/i, '.paragraph'],
-  [/^\.mes_block_wrap(?=$|[.:>+~\s[,])/i, '.paragraph'],
-  [/^\.mes_block(?=$|[.:>+~\s[,])/i, '.paragraph'],
+  [/^\.mes_block_wrap(?=$|[.:>+~\s[,])/i, '.paper'],
+  [/^\.mes_block(?=$|[.:>+~\s[,])/i, '.paper'],
   [/^\.last_mes(?=$|[.:>+~\s[,])/i, '.paragraph'],
-  [/^\.mes(?=$|[.:>+~\s[,])/i, '.paragraph'],
+  // 整条消息的装饰（头图、线圈、气泡角标）是画在 .mes 这一层上的，对应阅读区的整章。
+  [/^\.mes(?=$|[.:>+~\s[,])/i, '.chapter'],
   [/^\.message(?=$|[.:>+~\s[,])/i, '.message'],
   [/^body(?=$|[.:>+~\s[,])/i, '.chapter'],
 ];
 // 改写到阅读区后仍带界面 id、图标类或 :has() 的选择器会让样式跑偏，直接丢弃。
 const REJECT_SELECTOR = /#(?!chat)|\.fa-|\.drawer|:has\(|\[class\*=/i;
 
-// 酒馆里消息常见「外层气泡 .mes_block 包正文 .mes_text」。阅读区只有一层 .paragraph，
-// 所以把内层包装段整体去掉，让原本挂在 .mes_block 上的气泡边框、壁纸、角标落到 .paragraph 上。
+// 酒馆里消息常见「外层气泡 .mes_block 包正文 .mes_text」。阅读区是「章节 > 段落」，
+// 所以把内层包装换成对应的阅读节点，让原本挂在整条消息上的头图、线圈、角标落到整章，
+// 气泡里的文字规则落到段落上。
 const INNER_WRAPPER = /\.mes_text\b|\.mes_block_wrap\b|\.mes_block\b|\.last_mes\b|\.mesAvatarWrapper\b|\.mes_avatar_wrapper\b|\.mes\b/g;
 
 function mapSelectorPart(part) {
@@ -244,8 +246,15 @@ function mapSelectorPart(part) {
   const rule = ACCEPT_SELECTOR.find(([pattern]) => pattern.test(text));
   if (!rule) return '';
   const mapped = text.replace(rule[0], rule[1]).replace(/[>+]/g, ' ')
-    .replace(INNER_WRAPPER, ' ').replace(/\s+/g, ' ').trim()
-    .replace(/\.paragraph\s+\.paragraph\b/g, '.paragraph');
+    .replace(INNER_WRAPPER, inner => {
+      if (/^\.mes_text|^\.last_mes/.test(inner)) return '.paragraph';
+      if (/^\.mes_block/.test(inner)) return '.paper';
+      if (/^\.mesAvatarWrapper|^\.mes_avatar_wrapper/.test(inner)) return ' ';
+      return '.chapter';
+    })
+    .replace(/\s+/g, ' ').trim()
+    .replace(/\.paragraph\s+\.paragraph\b/g, '.paragraph')
+    .replace(/\.chapter\s+\.chapter\b/g, '.chapter');
   return REJECT_SELECTOR.test(mapped) ? '' : mapped;
 }
 
@@ -307,7 +316,6 @@ export function convertTavernCss(css, limit = 28000) {
   // 这个 vendor 解析器不暴露声明节点，装饰图只能按生成后的规则文本重新定位：
   // 丢掉角色档案大头图，把聊天标题的线圈改挂到整章顶部，并修正去掉内层包装后残留的空格。
   result = result
-    .replace(/[^{}]+\{[^{}]*var\(\s*--header-img-url\s*\)[^{}]*\}/g, '')
     .replace(/\.paragraph::after(?=[^{]*\{[^}]*var\(\s*--coil-url\s*\))/g, '.chapter::after')
     .replace(/\s+::/g, '::');
   // 变量定义挂在 .chapter 上，正文与小手机章节共用同一套类名，装饰里的 var() 才拿得到值。

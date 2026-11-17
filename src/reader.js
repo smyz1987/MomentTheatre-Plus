@@ -4,6 +4,7 @@ import { builtInSticker, STICKER_URLS, phoneIcon, virtualMap } from './phone-ass
 import { PHONE_CSS } from './phone-style.js';
 import { PROSE_CSS } from './prose.js';
 import { compileThemeCss } from './theme-css.js';
+import { scopeCss } from './scope-css.js';
 import { renderRegexProse } from './preset-regex.js';
 import { emptyProseIssue, originalProse } from './prose-diagnostics.js';
 import { effectiveFont, tavernFontLinks } from './tavern-look.js';
@@ -32,7 +33,7 @@ function phoneHtml(messages, characterName, appearance, chapterNumber) {
   // One scoped image declaration per side avoids that limit and duplication per message.
   const avatars = [['.own', look.userAvatar], [':not(.own)', group ? '' : look.charAvatar]].filter(([, url]) => url).map(([side, url]) => `${group ? '.phone.phone-group' : '.phone:not(.phone-group)'} .message${side} .message-avatar{background-image:url("${url.replace(/["\\<>]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ')}")!important}`).join('');
   const clock = messages.find(m => m.time)?.time?.match(/\d{1,2}:\d{2}/)?.[0] || '09:41';
-  return `${avatars ? `<style>@scope ([data-chapter="${chapterNumber}"]) { ${avatars} }</style>` : ''}<div class="phone${group ? ' phone-group' : ''}"><div class="phone-screen"><div class="phone-status"><span>${escapeHtml(clock)}</span><span class="phone-island" aria-hidden="true"></span><span class="phone-battery" aria-hidden="true"><i></i></span></div><div class="phone-header" style="display:grid!important;grid-template-columns:24px minmax(0,1fr) 24px!important;column-gap:8px!important;padding-inline:17px!important;direction:ltr!important"><span class="phone-back" aria-hidden="true" style="grid-column:1!important;grid-row:1!important;text-align:left!important">‹</span><div class="phone-contact" style="grid-column:2!important;grid-row:1!important;text-align:center!important;min-width:0!important;width:100%!important;margin-inline:0!important;position:static!important;transform:none!important" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div></div><div class="messages" tabindex="0" role="region" aria-label="手机消息，可在屏幕内滚动">${messages.map(m => {
+  return `${avatars ? `<style>${scopeChapterCss(avatars, chapterNumber)}</style>` : ''}<div class="phone${group ? ' phone-group' : ''}"><div class="phone-screen"><div class="phone-status"><span>${escapeHtml(clock)}</span><span class="phone-island" aria-hidden="true"></span><span class="phone-battery" aria-hidden="true"><i></i></span></div><div class="phone-header" style="display:grid!important;grid-template-columns:24px minmax(0,1fr) 24px!important;column-gap:8px!important;padding-inline:17px!important;direction:ltr!important"><span class="phone-back" aria-hidden="true" style="grid-column:1!important;grid-row:1!important;text-align:left!important">‹</span><div class="phone-contact" style="grid-column:2!important;grid-row:1!important;text-align:center!important;min-width:0!important;width:100%!important;margin-inline:0!important;position:static!important;transform:none!important" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div></div><div class="messages" tabindex="0" role="region" aria-label="手机消息，可在屏幕内滚动">${messages.map(m => {
     const senderName = m.sender === 'user' ? '你' : m.sender === 'system' ? '系统' : m.speaker || '角色';
     const body = escapeHtml(m.text);
     let inner = body;
@@ -58,6 +59,10 @@ function phoneHtml(messages, characterName, appearance, chapterNumber) {
     const hue = Array.from(senderName).reduce((hash, char) => (hash * 31 + char.codePointAt(0)) % 360, 0);
     return `<div class="message ${m.sender === 'user' ? 'own' : ''}" data-type="${m.type}"><span class="message-avatar${nameAvatar ? ' name-avatar' : ''}" role="img" aria-label="${escapeHtml(nameAvatar ? senderName + '的头像' : m.sender === 'user' ? '我方头像' : '对方头像')}"${nameAvatar ? ` style="background-image:none!important;background-color:hsl(${hue} 35% 85%)!important;color:#292a27!important;display:flex!important;align-items:center;justify-content:center;font:500 15px/1 system-ui"` : ''}>${nameAvatar ? escapeHtml(Array.from(senderName)[0] || '友') : ''}</span><div class="message-content">${nameAvatar ? `<span class="message-sender">${escapeHtml(senderName)}</span>` : ''}<div class="bubble">${inner}</div>${m.time ? `<time class="message-time">${escapeHtml(m.time)}</time>` : ''}</div></div>`;
   }).join('')}</div><div class="phone-footer" aria-hidden="true"><span class="phone-input"></span>${phoneIcon('plus')}</div><div class="phone-home" aria-hidden="true"></div></div></div>`;
+}
+// @scope 在部分浏览器版本里整块不生效，主题样式会全部丢失。这里改成给每条规则加章节前缀。
+export function scopeChapterCss(css, id) {
+  return scopeCss(css, `[data-chapter="${id}"]`, ['chapter', 'prose-chapter', 'phone-chapter', 'mixed-chapter']);
 }
 export function renderReader(story, theme, chapterIndex = null, themeForChapter = null, onWarnings = null, options = {}) {
   const chapters = chapterIndex === null ? story.chapters : [story.chapters[chapterIndex]].filter(Boolean);
@@ -97,7 +102,6 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     const builtinProse = ['prose-stamp','prose-galaxy','prose-gufeng','prose-y2k'].includes(selectedTheme.id);
     const chapterFont = resolveFont(t.fontFamily);
     const compiled = compileThemeCss(selectedTheme.css || '', chapterFont, n);
-    const coilUrl = mode === 'prose' ? themeImage(selectedTheme.css, 'coil-url') : '';
     const vars = `--reader-bg:${t.background || '#F9F8F6'};--reader-ink:${t.color || '#1C1C1C'};--reader-font:${compiled.fontFamily};--reader-size:${t.fontSize || '17px'};--reader-scale:${readScale};--reader-leading:${t.lineHeight || '1.9'};--bubble:${t.bubble || '#fff'};--own-bubble:${t.ownBubble || '#E3E1DB'}`;
     let content;
     if (mode === 'mixed') {
@@ -157,7 +161,9 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
       }
     }
     const heading = mode === 'phone' ? '' : index === firstProse ? `<h1 class="prose-title">${escapeHtml(story.title)}</h1>` : '';
-    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n@scope ([data-chapter="${n}"]) { ${compiled.css} ${builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : ''} ${mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : ''} }</style>${coilUrl ? `<img class="theme-coil" alt="" aria-hidden="true" src="${escapeHtml(coilUrl)}" style="display:block;position:relative;margin:0 auto 10px;width:min(var(--coil-width,100%),100%);height:var(--coil-height,70px);object-fit:fill;pointer-events:none;z-index:var(--coil-z-index,100)">` : ''}${heading}${content}</section>`;
+    // 酒馆主题的头图是绝对定位的，原样式只留 210px 间距，阅读区容易被头图压住正文。
+    const headerHeight = (compiled.css.match(/\.chapter::before\{[^}]*?height:([^!;}]+)/) || [])[1];
+    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n${scopeChapterCss([compiled.css, builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : '', mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : '', '.paper{position:relative}', 'main{max-width:620px!important;width:100%!important;margin:0 auto!important}', '.chapter{box-sizing:border-box!important;width:100%!important;max-width:620px!important;margin-left:auto!important;margin-right:auto!important}', '.chapter .paper{width:100%!important;max-width:100%!important}', 'html,body{overflow-x:hidden}', headerHeight ? `.chapter{padding-top:calc(${headerHeight.trim()} + 20px)!important}` : ''].filter(Boolean).join('\n'), n)}</style>${mode !== 'phone' ? `<div class="paper">${heading}${content}</div>` : `${heading}${content}`}</section>`;
   }).join('');
   // Static prose stays inert; scripted cards get only the trusted resize/error bridge.
   // 酒馆用 @import 载入的网络字体不会自动进入沙箱阅读区，这里把同一批字体样式表再挂一次。

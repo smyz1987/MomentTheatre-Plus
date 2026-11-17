@@ -2,6 +2,7 @@ import { sanitizeHtml, parse, walk, generate } from './reading-vendor.js';
 import { renderProseInline } from './prose.js';
 import { extractTitle } from './story-title.js';
 import { cardToken, cardFrame } from './regex-card.js';
+import { scopeCss } from './scope-css.js';
 
 const str = (x, max = 100000) => typeof x === 'string' ? x.slice(0, max) : '';
 export function normalizeRegexRules(rules) {
@@ -142,6 +143,6 @@ export function renderRegexProse(raw, rules, snapshot, chapter = 1, nonce = card
   const cleaned = cleanMarkup(fragments.join(''), warnings, true);
   let content = cleaned.content;
   for (const card of cards) content = content.replace('<span data-regex-frame="' + card.id + '"></span>', () => card.html);
-  const html = '<div class="preset-markup" data-regex-block="' + key + '">' + (cleaned.css ? '<style>@scope ([data-regex-block="' + key + '"]) { ' + cleaned.css + ' }</style>' : '') + content + '</div>';
+  const html = '<div class="preset-markup" data-regex-block="' + key + '">' + (cleaned.css ? '<style>' + scopeCss(cleaned.css, '[data-regex-block="' + key + '"]', ['preset-markup']) + '</style>' : '') + content + '</div>';
   return {html, warnings:[...new Set(warnings)], cards:cards.length,trace};
 }
