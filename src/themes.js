@@ -38,6 +38,11 @@ export function validateTheme(raw, { allowBuiltInId = false } = {}) {
 export function resolveTheme(state, mode, themeId) {
   const target = themeMode(mode);
   const follow = () => tavernReadingTheme(target, { background: state?.settings?.followBackground === true, font: state?.settings?.followFont !== false });
+  // 小手机不再跟随酒馆主题：酒馆美化大多只管聊天区，硬套到手机壳上会变成一堆错位的装饰。
+  if (target === 'phone') {
+    const phone = [...BUILTIN_THEMES, ...(state?.themes || [])].find(t => t.id === themeId && t.mode === 'phone');
+    return phone || BUILTIN_THEMES.find(t => t.mode === 'phone');
+  }
   // “跟随酒馆”每次渲染现取一次酒馆配色，章节保存时会冻结成快照。
   if (isTavernThemeId(themeId) && tavernThemeId(target) === themeId) return follow();
   const chosen = [...BUILTIN_THEMES, ...(state?.themes || [])].find(t => t.id === themeId && t.mode === target);
@@ -45,10 +50,10 @@ export function resolveTheme(state, mode, themeId) {
   if (TAVERN_THEME_IDS.includes(themeId) && tavernThemeId(target) === themeId) return follow();
   return BUILTIN_THEMES.find(t => t.mode === target) || follow();
 }
-// 美化页要列出的可选风格：内置 + 导入 + 实时的“跟随酒馆”。
+// 美化页要列出的可选风格：内置 + 导入；只有正文才有实时的“跟随酒馆”。
 export function themeChoices(state, mode) {
-  return [...BUILTIN_THEMES, ...state.themes].filter(t => t.mode === mode).map(t => ({ value: t.id, label: t.name }))
-    .concat([{ value: tavernThemeId(mode), label: '跟随酒馆（实时）' }]);
+  const rows = [...BUILTIN_THEMES, ...state.themes].filter(t => t.mode === mode).map(t => ({ value: t.id, label: t.name }));
+  return mode === 'phone' ? rows : rows.concat([{ value: tavernThemeId(mode), label: '跟随酒馆（实时）' }]);
 }
 export function removeImportedTheme(state, themeId) {
   const theme = state.themes.find(t => t.id === themeId);

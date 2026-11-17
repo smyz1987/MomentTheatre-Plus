@@ -7,7 +7,7 @@ import { captureReadingTheme, resolveTheme, resolveLegacyTheme, validateTheme, B
 
 import { createId } from './id.js';
 
-export const VERSION = '1.3.16';
+export const VERSION = '1.3.17';
 export const normalizeMode = mode => ['prose', 'phone', 'html', 'mixed'].includes(mode) ? mode : 'prose';
 export const modeLabel = mode => ({ prose: '正文', phone: '小手机', html: 'HTML', mixed: '混合' }[mode] || '正文');
 export const SCHEMA = 1;
@@ -177,6 +177,11 @@ export function normalizeState(raw) {
     state.errors = state.errors.filter(e => !e.stage.startsWith('预览模拟'));
   }
   state.stories.forEach(recoverStoryTitle);
+  // 小手机不再跟随酒馆主题：旧的“跟随酒馆”或从主题库套来的手机主题都回落到内置手机风格。
+  if (TAVERN_THEME_IDS.includes(state.settings.phoneTheme) || /^custom-lib-phone-/.test(state.settings.phoneTheme)) {
+    state.settings.phoneTheme = DEFAULT_SETTINGS.phoneTheme;
+  }
+  state.themes = state.themes.filter(t => !/^custom-lib-phone-/.test(t.id));
   return state;
 }
 export function backup(state) {

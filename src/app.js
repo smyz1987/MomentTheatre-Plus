@@ -1287,7 +1287,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     });
     const drawLibrary = () => {
       if (!tavernLibrary) return;
-      libraryRows.replaceChildren(...['prose', 'phone'].map(mode => {
+      // 只给正文提供酒馆主题库：小手机不走酒馆美化这条路，样式由内置/导入的手机主题负责。
+      libraryRows.replaceChildren(...['prose'].map(mode => {
         const label = mode === 'phone' ? '小手机用它' : '正文用它';
         const selected = currentLibraryName(mode);
         const select = el('select', { 'aria-label': `从酒馆主题库为${mode === 'phone' ? '小手机' : '正文'}选一套`, onChange: e => { const value = e.target.value; if (value) applyLibraryTheme(mode, value).catch(() => {}); } },
