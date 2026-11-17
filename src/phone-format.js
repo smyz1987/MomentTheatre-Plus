@@ -72,6 +72,21 @@ function splitFields(line) {
 function lineMessage(line, names) {
   const match = line.trim().match(/^[\[［]([\s\S]*)[\]］]$/); if (!match) return null;
   const parts = splitFields(match[1]), tokenSender = parts[0]?.trim();
+  // 角色卡自带的小手机格式：[对方消息|头像.jpg|内容|19:02]、[我方消息|…]，
+  // 表情包写成 <bqb>小狗哭哭outz25.gif</bqb>。头像字段只用于卡面展示，这里跳过。
+  const cardSender = lookup({ 对方消息: 'char', 角色消息: 'char', 我方消息: 'user', 用户消息: 'user', 系统消息: 'system' }, tokenSender);
+  if (cardSender && parts.length >= 3) {
+    let rest = parts.slice(1);
+    if (/^[\w\-.]+\.(?:png|jpg|jpeg|gif|webp|avif|bmp)$/i.test((rest[0] || '').trim())) rest = rest.slice(1);
+    let time = '';
+    const last = (rest.at(-1) || '').trim();
+    if (rest.length > 1 && /^(?:(?:上午|下午|晚上|凌晨|中午)\s*)?\d{1,2}[:：]\d{2}(?::\d{2})?\s*(?:am|pm)?$/i.test(last)) { time = last; rest = rest.slice(0, -1); }
+    const text = rest.join('|').trim();
+    if (!text) return null;
+    const sticker = /<bqb>\s*([^<]{1,120}?)\s*<\/bqb>/i.exec(text);
+    if (sticker) return { sender: cardSender, time, type: 'sticker', sticker: sticker[1], text: sticker[1] };
+    return { sender: cardSender, time, type: 'text', text: text.replace(/<bqb>[\s\S]*?<\/bqb>/gi, '').trim() };
+  }
   const sender = names.group && /^成员[:：].+/u.test(tokenSender) ? tokenSender : senderOf(tokenSender, names);
   if (!sender || parts.length < 3) return null;
   const token = parts[2]?.trim();
@@ -243,6 +258,9 @@ function parsePhoneBody(text, names) {
     const parts = splitFields(line.replace(/^[\[［]/, '').replace(/[\]］]$/, ''));
     if (parts[0]?.trim() === '群聊' && parts.length === 2) { group = parts[1].trim().slice(0, 120) || '群聊'; parsedLines.add(line); continue; }
     if (parts[0]?.trim() === '私聊' && parts.length === 1) { group = ''; parsedLines.add(line); continue; }
+    // 角色卡常见的标题行：[和谢嬴的聊天]。它只是这段对话的标题，不是群聊，
+    // 所以不写进 group（否则会按群聊显示发言人姓名和群头像），只当作已解析行跳过。
+    if (parts.length === 1 && /^和\s*[^|]{1,40}?\s*的聊天$/.test(parts[0].trim())) { parsedLines.add(line); continue; }
     const row = lineMessage(line, { ...names, group });
     if (row) { lineRows.push({ ...row, ...(group ? { group } : {}) }); parsedLines.add(line); }
   }
@@ -308,10 +326,23 @@ function serializeMessage(m) {
     const values = fields[m.type].map(key => m[key] || ''); while (values.length > 1 && !values.at(-1)) values.pop();
     return '[' + [m.sender, m.time || '', ...(m.type === 'text' ? [] : [labels[m.type]]), ...values].map(encode).join('|') + ']';
 }
+// 角色卡的表情包常写成「中文名+随机串.扩展名」（小狗爱心yok51c.gif），
+// 表情库里的条目则可能是「小狗爱心」或指向 yok51c.gif。这里给出几种等价键。
+function stickerKeys(name) {
+  const raw = scalar(name).trim(); if (!raw) return [];
+  const base = raw.replace(/\.(?:png|jpg|jpeg|gif|webp|avif|bmp)$/i, '');
+  const keys = [raw, base, base.replace(/[A-Za-z0-9]{5,10}$/, '')];
+  return keys.map(k => k.trim().toLowerCase()).filter(Boolean);
+}
 export function resolveMessageStickers(messages, library, { embedLocal = true } = {}) {
-  const map = new Map(activeStickers(library).map(row => [row.name, row]));
+  const map = new Map();
+  for (const row of activeStickers(library)) {
+    for (const key of stickerKeys(row.name)) if (!map.has(key)) map.set(key, row);
+    const file = (scalar(row.url).split(/[?#]/)[0].split('/').pop() || '').replace(/\.(?:png|jpg|jpeg|gif|webp|avif|bmp)$/i, '');
+    for (const key of stickerKeys(file)) if (!map.has(key)) map.set(key, row);
+  }
   return messages.map(m => {
-    const sticker = m.type === 'sticker' && map.get(m.sticker || m.text);
+    const sticker = m.type === 'sticker' && (map.get(m.sticker || m.text) || stickerKeys(m.sticker || m.text).map(k => map.get(k)).find(Boolean));
     return sticker && (embedLocal || !localStickerUrl(sticker.url)) && !safeStickerUrl(m.url) ? { ...m, url: sticker.url, text: m.text || sticker.description || sticker.name } : m;
   });
 }
