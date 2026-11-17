@@ -8,6 +8,14 @@ import { renderRegexProse } from './preset-regex.js';
 import { emptyProseIssue, originalProse } from './prose-diagnostics.js';
 import { effectiveFont, tavernFontLinks } from './tavern-look.js';
 import { readableMixedSegments, sanitizeCardHtml, MIXED_CAPS } from './mixed-format.js';
+
+// 阅读区里 CSS 的 background-image 拿不到酒馆美化的装饰图（沙箱文档会忽略这类外部/内联图），
+// 所以把主题里的线圈单独取出来，用真正的 <img> 放进章节，跟着主题变量定位。
+function themeImage(themeCss, name) {
+  const match = String(themeCss || '').match(new RegExp(`--${name}:\\s*url\\((?:'|")?([^'")]+)`, 'i'));
+  return match ? match[1].trim() : '';
+}
+
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export { PHONE_TYPES, parsePhone } from './phone-format.js';
 import { parsePhone, resolveMessageStickers } from './phone-format.js';
@@ -89,6 +97,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     const builtinProse = ['prose-stamp','prose-galaxy','prose-gufeng','prose-y2k'].includes(selectedTheme.id);
     const chapterFont = resolveFont(t.fontFamily);
     const compiled = compileThemeCss(selectedTheme.css || '', chapterFont, n);
+    const coilUrl = mode === 'prose' ? themeImage(selectedTheme.css, 'coil-url') : '';
     const vars = `--reader-bg:${t.background || '#F9F8F6'};--reader-ink:${t.color || '#1C1C1C'};--reader-font:${compiled.fontFamily};--reader-size:${t.fontSize || '17px'};--reader-scale:${readScale};--reader-leading:${t.lineHeight || '1.9'};--bubble:${t.bubble || '#fff'};--own-bubble:${t.ownBubble || '#E3E1DB'}`;
     let content;
     if (mode === 'mixed') {
@@ -148,7 +157,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
       }
     }
     const heading = mode === 'phone' ? '' : index === firstProse ? `<h1 class="prose-title">${escapeHtml(story.title)}</h1>` : '';
-    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n@scope ([data-chapter="${n}"]) { ${compiled.css} ${builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : ''} ${mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : ''} }</style>${heading}${content}</section>`;
+    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n@scope ([data-chapter="${n}"]) { ${compiled.css} ${builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : ''} ${mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : ''} }</style>${coilUrl ? `<img class="theme-coil" alt="" aria-hidden="true" src="${escapeHtml(coilUrl)}" style="display:block;position:relative;margin:0 auto 10px;width:min(var(--coil-width,100%),100%);height:var(--coil-height,70px);object-fit:fill;pointer-events:none;z-index:var(--coil-z-index,100)">` : ''}${heading}${content}</section>`;
   }).join('');
   // Static prose stays inert; scripted cards get only the trusted resize/error bridge.
   // 酒馆用 @import 载入的网络字体不会自动进入沙箱阅读区，这里把同一批字体样式表再挂一次。

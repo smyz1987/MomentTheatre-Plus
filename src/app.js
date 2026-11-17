@@ -338,7 +338,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     for (const chapter of story.chapters) chapter.readingRegex = clone(rules);
     story.snapshot.htmlFiltersCaptured = true;
   }
-  function makeReader(story, index = null, previewThemeId = null) {
+  function makeReader(story, index = null, previewThemeId = null, { instant = false } = {}) {
     const mode = story.chapters[index]?.mode || story.mode;
     if (mode === 'html') {
       const chapter = story.chapters[index ?? 0], issue = htmlIssue(chapter?.content);
@@ -357,6 +357,9 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     // bridge. Keeping its origin avoids Chromium nested opaque-frame blanking.
     // Every rule script remains in a separate allow-scripts-only opaque card.
     if (host.prepareReaderHtml) frame.srcdoc = host.prepareReaderHtml(html);
+    // 美化页预览要即时出效果：直接挂上已生成的安全 HTML，图片与字体交给 iframe 自己按
+    // CSP（img-src / font-src 已放开 https）加载，不再等逐张抓取内联，避免换主题时空白几秒。
+    else if (instant) frame.srcdoc = html;
     else readerAssets.prepare(html).then(doc => { if (!disposed) frame.srcdoc = doc; });
     if (issues.length) {
       let raw = false;

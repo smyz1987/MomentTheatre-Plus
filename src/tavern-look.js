@@ -234,13 +234,37 @@ const ACCEPT_SELECTOR = [
 // 改写到阅读区后仍带界面 id、图标类或 :has() 的选择器会让样式跑偏，直接丢弃。
 const REJECT_SELECTOR = /#(?!chat)|\.fa-|\.drawer|:has\(|\[class\*=/i;
 
+// 酒馆里消息常见「外层气泡 .mes_block 包正文 .mes_text」。阅读区只有一层 .paragraph，
+// 所以把内层包装段整体去掉，让原本挂在 .mes_block 上的气泡边框、壁纸、角标落到 .paragraph 上。
+const INNER_WRAPPER = /\.mes_text\b|\.mes_block_wrap\b|\.mes_block\b|\.last_mes\b|\.mesAvatarWrapper\b|\.mes_avatar_wrapper\b|\.mes\b/g;
+
 function mapSelectorPart(part) {
   const text = part.trim();
   if (!text || /^:root\b/i.test(text)) return '';
   const rule = ACCEPT_SELECTOR.find(([pattern]) => pattern.test(text));
   if (!rule) return '';
-  const mapped = text.replace(rule[0], rule[1]).replace(/[>+]/g, ' ');
+  const mapped = text.replace(rule[0], rule[1]).replace(/[>+]/g, ' ')
+    .replace(INNER_WRAPPER, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/\.paragraph\s+\.paragraph\b/g, '.paragraph');
   return REJECT_SELECTOR.test(mapped) ? '' : mapped;
+}
+
+// 酒馆美化里的装饰大量写成 var(--xxx)，变量定义通常挂在 :root / body / #chat 上。
+// 这些选择器转不到阅读区，但值本身可以直接搬到 .chapter 上，让装饰重新拿到颜色与图片。
+function collectCustomProps(css) {
+  const vars = new Map();
+  const text = String(css || '');
+  // 值里可能带 url(data:image/png;base64,...)，先整体吃掉 url(...) 再按分号切分。
+  const rule = /--([A-Za-z0-9_-]+)\s*:\s*((?:url\(\s*[^)]*\)|[^;{}<>\\])+)/gi;
+  let match;
+  while ((match = rule.exec(text))) {
+    let value = match[2].replace(/\/\*[\s\S]*?\*\//g, '').trim();
+    if (!value || value.length > 800 || /expression\s*\(/i.test(value)) continue;
+    const important = /!important$/i.test(value);
+    if (important) value = value.replace(/!important$/i, '').trim();
+    vars.set(`--${match[1]}`, value + (important ? '!important' : ''));
+  }
+  return vars;
 }
 
 // 把酒馆自定义 CSS 里能对应到阅读区选择器的规则转成主题 CSS；其余界面规则丢弃。
@@ -253,6 +277,9 @@ export function convertTavernCss(css, limit = 28000) {
   // 酒馆美化里常有浏览器能容忍的小毛病，这里按可恢复方式解析，最后由主题校验兜底。
   try { ast = parse(source, { context: 'stylesheet', parseCustomProperty: true }); }
   catch { return { css: '', warnings: ['原美化 CSS 里有无法解析的写法，已只套用配色与字体。'], kept: 0 }; }
+  // 装饰常写成 var(--xxx)：先把所有作用域里的自定义属性收集起来，稍后挂到章节根上，
+  // 否则 :root 被丢弃后这些变量全部失效，整套美化就只剩底色和字体。
+  const vars = collectCustomProps(source);
   walk(ast, (node, item, list) => {
     if (node.type === 'Atrule' && /^(?:import|charset)$/i.test(node.name)) { list.remove(item); return; }
     if (node.type !== 'Rule' || insideKeyframes(node)) return;
@@ -277,7 +304,23 @@ export function convertTavernCss(css, limit = 28000) {
   try { result = generate(ast); } catch { result = ''; }
   // 阅读区的 HTML 校验不允许尖括号，组合符已在选择器里换成后代选择器。
   result = result.replace(/<\/style/gi, '');
-  if (result.length > limit) { result = result.slice(0, limit); warnings.push('原美化 CSS 较长，已截取前半部分，可在主题里继续精简。'); }
+  // 这个 vendor 解析器不暴露声明节点，装饰图只能按生成后的规则文本重新定位：
+  // 丢掉角色档案大头图，把聊天标题的线圈改挂到整章顶部，并修正去掉内层包装后残留的空格。
+  result = result
+    .replace(/[^{}]+\{[^{}]*var\(\s*--header-img-url\s*\)[^{}]*\}/g, '')
+    .replace(/\.paragraph::after(?=[^{]*\{[^}]*var\(\s*--coil-url\s*\))/g, '.chapter::after')
+    .replace(/\s+::/g, '::');
+  // 变量定义挂在 .chapter 上，正文与小手机章节共用同一套类名，装饰里的 var() 才拿得到值。
+  const varBlock = vars.size ? `.chapter{position:relative;${[...vars].map(([key, value]) => `${key}:${value}`).join(';')}}` : '';
+  if (varBlock) result = varBlock + result;
+  if (result.length > limit && varBlock.length <= limit - 60) {
+    const cut = result.lastIndexOf('}', limit);
+    result = cut > 0 ? result.slice(0, cut + 1) : '';
+    warnings.push('原美化 CSS 较长，已按完整规则截取，可在主题里继续精简。');
+  } else if (result.length > limit) {
+    result = '';
+    warnings.push('原美化 CSS 的变量定义过长，已跳过装饰转换，只套用配色与字体。');
+  }
   if (result) {
     try { parseThemeCss(result); } catch { return { css: '', warnings: [...warnings, '转换出的装饰样式未通过校验，已只套用配色与字体。'], kept: 0 }; }
   }
