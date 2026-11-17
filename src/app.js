@@ -116,6 +116,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   let backgroundSave = null, saveAgain = false;
   let inputDirty = false, inputVersion = 0, restoringBackup = false;
   let generationError = null, nativePanel = null, wandEntry = null, refreshRegexOptions = () => {}, catalogRequest = 0;
+  // 美化页预览在面板关闭时释放（清掉 srcdoc），下次打开再重建，避免预览 iframe 常驻占内存。
+  let restorePreviews = null;
   const finishedSound = completionSound();
   const readingWarnings = new Set(), readerTokens = new WeakMap();
   const onReaderMessage = event => {
@@ -259,7 +261,21 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   }
   function setLauncherEnabled(value) { if (!ready) { nativePanel?.sync(!launcher.hidden, true); return; } state.settings.launcherEnabled = value; launcher.hidden = !value; nativePanel?.sync(value); scheduleSave(); }
   async function action(fn) { if (busyAction||store?.health.writable===false) return; busyAction = true; try { await fn(); } catch (e) { report(e); } finally { busyAction = false; } }
-  function open() { unread = false; launcher.querySelector('.unread').hidden = true; launcher.classList.remove('complete'); if (!dialog.open) dialog.showModal(); autoSync?.wake(); if (ready) refreshCatalog(false); startTourGuide(true); }
+  // 美化页的两张预览 iframe 在面板关闭时卸掉内容，打开时按需重建（约 45ms 量级）。
+  function parkPreviewFrames() {
+    let parked = 0;
+    for (const frame of shadow.querySelectorAll('.skin-preview iframe.reader-frame')) {
+      if (!frame.hasAttribute('srcdoc')) continue;
+      frame.removeAttribute('srcdoc'); frame.dataset.parked = '1'; parked++;
+    }
+    return parked;
+  }
+  function unparkPreviewFrames() {
+    if (!shadow.querySelector('.skin-preview iframe[data-parked="1"]')) return;
+    if (shadow.querySelector('.skin-preview') && restorePreviews) { restorePreviews(); return; }
+    if (ready) render();
+  }
+  function open() { unread = false; launcher.querySelector('.unread').hidden = true; launcher.classList.remove('complete'); if (!dialog.open) dialog.showModal(); unparkPreviewFrames(); autoSync?.wake(); if (ready) refreshCatalog(false); startTourGuide(true); }
   function toggleTheme() { if (!ready) return; state.settings.theme = state.settings.theme === 'night' ? 'day' : 'night'; root.dataset.theme = launcher.dataset.theme = state.settings.theme; themeButton.replaceChildren(windowIcon(state.settings.theme)); scheduleSave(); }
   function changeTab(value) { if (editing) { notify('请先保存或取消章节编辑。'); return; } tab = value; render(true); content.scrollTop = 0; }
   // 新手引导：第一次打开自动弹一次，之后点右上角「?」随时重看。
@@ -275,7 +291,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       goto: value => { if (value && value !== tab) changeTab(value); },
       onFinish: () => { tour = null; if (auto) { state.settings.tourDone = true; scheduleSave(); } } });
   }
-  dialog.addEventListener('close', () => { tour?.close(); });
+  dialog.addEventListener('close', () => { tour?.close(); parkPreviewFrames(); });
   function renderNav() { nav.replaceChildren(...[['generate', '番外'], ['scripts', '剧本'], ['library', '故事'], ['themes', '美化'], ['settings', '设置']].map(([value, title]) => button(title, () => changeTab(value), { 'aria-current': value === tab ? 'page' : null, class: value === tab ? 'active' : '' }))); }
   function render(switching = false) {
     if (!ready) { renderStartup(); return; }
@@ -360,7 +376,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     // 美化页预览要即时出效果：直接挂上已生成的安全 HTML，图片与字体交给 iframe 自己按
     // CSP（img-src / font-src 已放开 https）加载，不再等逐张抓取内联，避免换主题时空白几秒。
     else if (instant) frame.srcdoc = html;
-    else readerAssets.prepare(html).then(doc => { if (!disposed) frame.srcdoc = doc; });
+    else readerAssets.prepare(html).then(doc => { if (!disposed && !frame.dataset.parked) frame.srcdoc = doc; });
     if (issues.length) {
       let raw = false;
       const rawText = issues.map(issue => originalProse(story.chapters[issue.chapter - 1])).join('\n\n');
@@ -1164,6 +1180,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       deleteButton.disabled = !state.themes.some(t => t.id === theme.id);
       deleteButton.title = deleteButton.disabled ? '内置默认风格不能删除' : `删除${skinPreview === 'phone' ? '小手机' : '正文'}主题：${theme.name}`;
     };
+    const refreshers = [];
     const panels = ['prose', 'phone'].map(mode => {
       const key = mode === 'prose' ? 'proseTheme' : 'phoneTheme', title = mode === 'prose' ? '正文风格' : '小手机风格';
       const activate = () => {
@@ -1174,11 +1191,13 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       const previewPanel = el('div', { class: 'skin-preview' });
       const refreshPreview = () => previewPanel.replaceChildren(el('p', { class: 'muted' }, `正在预览：${title} · ${resolveTheme(state, mode, state.settings[key]).name}`), makeReader(sampleStory(mode), 0, state.settings[key]));
       const choice = singleChoice(title, themeChoices(state, mode), state.settings[key], value => { selectReadingTheme(mode, value); activate(); scheduleSave(); refreshPreview(); });
-      choice.addEventListener('focusin', activate); refreshPreview();
+      choice.addEventListener('focusin', activate); refreshPreview(); refreshers.push(refreshPreview);
       const refreshPhone = () => { activate(); refreshPreview(); };
       return el('div', { class: `skin-column ${skinPreview === mode ? 'current-preview' : ''}`, 'data-mode': mode, onPointerdown: activate }, dropdownField(title, choice), previewPanel,
         mode === 'phone' ? el('div', { class: 'phone-customization' }, button('修改备注', () => editPhoneRemark(refreshPhone), { class: 'text-button' }), button('修改头像', () => editPhoneAvatars(refreshPhone), { class: 'text-button' })) : null);
     });
+    // 面板关闭时预览被 park，重新打开时由这里按当前主题重建。
+    restorePreviews = () => { for (const refresh of refreshers) refresh(); };
     const imported = el('input', { type: 'file', accept: '.json,application/json', hidden: true, onChange: e => action(async () => {
       const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
       if (file.size > 2000000) throw new Error('主题文件过大，请使用小于 2 MB 的 JSON。');
