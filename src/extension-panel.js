@@ -7,7 +7,7 @@ export function mountExtensionPanel({ enabled, setEnabled, disabled = false }, c
   const drawer = document.createElement('div'); drawer.className = 'inline-drawer';
   const heading = document.createElement('div');
   heading.className = 'inline-drawer-toggle inline-drawer-header';
-  const title = document.createElement('b'); title.textContent = '瞬息 · 番外小剧场';
+  const title = document.createElement('b'); title.textContent = '瞬息SmYz版';
   const icon = document.createElement('div'); icon.className = 'fa-solid fa-circle-chevron-down inline-drawer-icon down';
   heading.append(title, icon);
   const content = document.createElement('div'); content.className = 'inline-drawer-content';
