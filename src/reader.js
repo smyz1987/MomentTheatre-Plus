@@ -17,6 +17,45 @@ function themeImage(themeCss, name) {
   return match ? match[1].trim() : '';
 }
 
+// 主题的 body / #chat 底色会被转换到 .chapter 上。阅读区把同一个纯色再铺到整页，
+// 放大或全屏时章节两侧才是同一块聊天底色，而不是面板的白底。
+// 半透明底色（如夜间主题的 rgba(0,0,0,.35)）在沙箱里没有壁纸可叠，按原色不透明铺开。
+function solidColor(value) {
+  const text = String(value || '').replace(/!important/i, '').trim();
+  if (!text || /^(?:transparent|none|inherit|initial|unset|currentcolor)$/i.test(text)) return '';
+  if (/url\(|gradient|image-set|var\(/i.test(text)) return '';
+  const hex = text.match(/^#(?:[0-9a-f]{3,8})$/i);
+  if (hex) {
+    const digits = text.slice(1);
+    if (digits.length === 4) return '#' + digits.slice(0, 3);
+    if (digits.length === 8) return '#' + digits.slice(0, 6);
+    return text.toLowerCase();
+  }
+  const rgb = text.match(/^rgba?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)\s*[,\s]\s*([\d.]+)/i);
+  if (rgb) return `rgb(${Math.round(+rgb[1])}, ${Math.round(+rgb[2])}, ${Math.round(+rgb[3])})`;
+  const hsl = text.match(/^hsla?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)%\s*[,\s]\s*([\d.]+)%/i);
+  if (hsl) return `hsl(${Math.round(+hsl[1])}, ${Math.round(+hsl[2])}%, ${Math.round(+hsl[3])}%)`;
+  return /^[a-z]{3,20}$/i.test(text) ? text : '';
+}
+function pageBackground(themeCss) {
+  const text = String(themeCss || '');
+  const pick = test => {
+    let found = '';
+    for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const parts = rule[1].split(',').map(part => part.trim()).filter(Boolean);
+      if (!parts.length || parts.some(part => !test(part))) continue;
+      const declaration = rule[2].match(/background(?:-color)?\s*:\s*([^;}]+)/i);
+      if (!declaration) continue;
+      const color = solidColor(declaration[1]);
+      if (color) found = color;
+    }
+    return found;
+  };
+  return pick(part => /^\.chapter(?:\.(?:prose-chapter|phone-chapter|mixed-chapter))?$/.test(part))
+    || pick(part => /^body$/i.test(part))
+    || '';
+}
+
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export { PHONE_TYPES, parsePhone } from './phone-format.js';
 import { parsePhone, resolveMessageStickers } from './phone-format.js';
@@ -77,6 +116,8 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
   // 阅读字号缩放：1 与原来完全一致，只放大/缩小瞬息自己的阅读区文字。
   const readScale = (() => { const value = Number(options.readScale); return Number.isFinite(value) && value >= 0.8 && value <= 1.4 ? Math.round(value * 100) / 100 : 1; })();
   const fontCache = new Map();
+  // 整页底色取主题自己的聊天底色；没有纯色规则时保持透明，沿用原来的观感。
+  const pageBg = pageBackground(theme.css);
   const resolveFont = themeFont => {
     const key = String(themeFont || '');
     if (!fontCache.has(key)) fontCache.set(key, effectiveFont(themeFont, followFont));
@@ -171,7 +212,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
   // 酒馆用 @import 载入的网络字体不会自动进入沙箱阅读区，这里把同一批字体样式表再挂一次。
   const fontLinks = tavernFontLinks().map(href => `<link rel="stylesheet" href="${escapeHtml(href)}" referrerpolicy="no-referrer">`).join('');
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; ${cards ? `script-src 'nonce-${nonce}'; frame-src about:; ` : ''}style-src 'unsafe-inline' https:; img-src https: http: data:; font-src https: http: data:; base-uri 'none'; form-action 'none'">${cards ? `<meta name="shunxi-reader" content="${nonce}">` : ''}${fontLinks}<title>${escapeHtml(story.title)}</title><style>
-*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#aaa69c55 transparent}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#aaa69c66;border-radius:8px}body{margin:0;padding:20px;background:transparent;color:${theme.tokens?.color || '#282724'};font:17px/1.9 ${escapeHtml(resolveFont(theme.tokens?.fontFamily))};overflow-wrap:anywhere}main{max-width:720px;margin:auto}h2{font-family:inherit;font-weight:400}h1{font-family:inherit;font-weight:400;font-size:1.6em;margin:0 0 20px}h2{font-size:1em;opacity:.65;margin:0 0 18px}.chapter{padding:24px;background:var(--reader-bg);color:var(--reader-ink);font-family:var(--reader-font);font-size:calc(var(--reader-size) * var(--reader-scale,1));line-height:var(--reader-leading)}.paragraph{white-space:pre-wrap;margin:0 0 1em}.chapter+.chapter{border-top:1px solid #8883;margin-top:30px}pre{white-space:pre-wrap;font:inherit}.phone{width:min(320px,100%);height:600px;background:color-mix(in srgb,var(--reader-bg) 85%,#999);border:2px solid #aaa5;border-radius:43px;padding:7px;position:relative;margin:auto;box-shadow:inset 0 0 0 3px #fff6,0 8px 24px #0000000a}.phone:before,.phone:after{content:'';position:absolute;top:110px;width:3px;height:40px;background:#a9a9a9;border-radius:2px}.phone:before{left:-5px;box-shadow:0 49px 0 #a9a9a9}.phone:after{right:-5px;top:145px;height:54px}.phone-screen{height:100%;border-radius:34px;overflow:hidden;background:var(--reader-bg);display:flex;flex-direction:column;min-height:0}.phone-status{flex-shrink:0;height:48px;padding:14px 18px 0;display:flex;justify-content:space-between;align-items:flex-start;font:600 11px/1.5 system-ui;position:relative}.phone-island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:80px;height:24px;background:#111;border-radius:20px}.phone-island:after{content:'';position:absolute;right:8px;top:7px;width:10px;height:10px;background:#202025;border-radius:50%}.phone-signals{display:flex;align-items:center;gap:5px;letter-spacing:1px}.phone-signals i{display:block;width:17px;height:9px;border:1px solid currentColor;border-radius:2px;position:relative}.phone-signals i:before{content:'';position:absolute;inset:1px 3px 1px 1px;background:currentColor}.phone-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 17px 12px;border-bottom:1px solid #8883;font:500 14px/1.5 system-ui;text-align:center;flex-shrink:0}.phone-header small{display:block;font-size:9px;opacity:.45;font-weight:400}.phone-back{font:24px/1 system-ui}.messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:10px 13px 22px;outline-offset:-3px}.message{display:flex;flex-direction:column;align-items:flex-start;margin:14px 0}.own{align-items:flex-end}.bubble{background:var(--bubble);padding:9px 12px;max-width:88%;border:1px solid #8882;border-radius:13px 13px 13px 3px;color:inherit;white-space:pre-wrap;font-size:14px;line-height:1.65}.own .bubble{background:var(--own-bubble);border-radius:13px 13px 3px 13px}.message small{font-size:10px;margin:0 0 5px;opacity:.6}.message-label{display:block;font-size:10px;margin-bottom:6px;opacity:.6}.bubble p{margin:8px 0 0}.bubble img{display:block;max-width:100%;height:auto}.timestamp{text-align:center;font-size:10px;opacity:.5}.phone-footer{height:44px;display:flex;align-items:center;gap:10px;padding:6px 16px;border-top:1px solid #8882;flex-shrink:0}.phone-input{height:27px;border:1px solid #8883;background:var(--bubble);border-radius:16px;flex:1}.phone-home{width:94px;height:4px;border-radius:8px;background:currentColor;opacity:.3;margin:6px auto 9px;flex-shrink:0}summary{cursor:pointer}summary:focus-visible{outline:2px solid currentColor}details p{white-space:pre-wrap}.diagnostic{border:1px solid currentColor;padding:12px;font-size:13px}.phone-reader{padding:14px;overflow:hidden}.phone-reader main>h1{display:none}.phone-reader .chapter{padding:0;background:transparent}.phone-reader .chapter>h2{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}.phone-reader .phone{height:calc(100dvh - 28px);max-height:620px}.phone-reader .diagnostic,.phone-reader pre{position:relative;overflow:auto;max-height:85vh}.phone-chapter{padding-left:10px;padding-right:10px}@media(max-width:400px){body{padding:14px}.chapter{padding:14px}.phone-reader .chapter{padding:0}}
+*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#aaa69c55 transparent}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#aaa69c66;border-radius:8px}body{margin:0;padding:20px;background:${pageBg || 'transparent'};color:${theme.tokens?.color || '#282724'};font:17px/1.9 ${escapeHtml(resolveFont(theme.tokens?.fontFamily))};overflow-wrap:anywhere}main{max-width:720px;margin:auto}h2{font-family:inherit;font-weight:400}h1{font-family:inherit;font-weight:400;font-size:1.6em;margin:0 0 20px}h2{font-size:1em;opacity:.65;margin:0 0 18px}.chapter{padding:24px;background:var(--reader-bg);color:var(--reader-ink);font-family:var(--reader-font);font-size:calc(var(--reader-size) * var(--reader-scale,1));line-height:var(--reader-leading)}.paragraph{white-space:pre-wrap;margin:0 0 1em}.chapter+.chapter{border-top:1px solid #8883;margin-top:30px}pre{white-space:pre-wrap;font:inherit}.phone{width:min(320px,100%);height:600px;background:color-mix(in srgb,var(--reader-bg) 85%,#999);border:2px solid #aaa5;border-radius:43px;padding:7px;position:relative;margin:auto;box-shadow:inset 0 0 0 3px #fff6,0 8px 24px #0000000a}.phone:before,.phone:after{content:'';position:absolute;top:110px;width:3px;height:40px;background:#a9a9a9;border-radius:2px}.phone:before{left:-5px;box-shadow:0 49px 0 #a9a9a9}.phone:after{right:-5px;top:145px;height:54px}.phone-screen{height:100%;border-radius:34px;overflow:hidden;background:var(--reader-bg);display:flex;flex-direction:column;min-height:0}.phone-status{flex-shrink:0;height:48px;padding:14px 18px 0;display:flex;justify-content:space-between;align-items:flex-start;font:600 11px/1.5 system-ui;position:relative}.phone-island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:80px;height:24px;background:#111;border-radius:20px}.phone-island:after{content:'';position:absolute;right:8px;top:7px;width:10px;height:10px;background:#202025;border-radius:50%}.phone-signals{display:flex;align-items:center;gap:5px;letter-spacing:1px}.phone-signals i{display:block;width:17px;height:9px;border:1px solid currentColor;border-radius:2px;position:relative}.phone-signals i:before{content:'';position:absolute;inset:1px 3px 1px 1px;background:currentColor}.phone-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 17px 12px;border-bottom:1px solid #8883;font:500 14px/1.5 system-ui;text-align:center;flex-shrink:0}.phone-header small{display:block;font-size:9px;opacity:.45;font-weight:400}.phone-back{font:24px/1 system-ui}.messages{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:10px 13px 22px;outline-offset:-3px}.message{display:flex;flex-direction:column;align-items:flex-start;margin:14px 0}.own{align-items:flex-end}.bubble{background:var(--bubble);padding:9px 12px;max-width:88%;border:1px solid #8882;border-radius:13px 13px 13px 3px;color:inherit;white-space:pre-wrap;font-size:14px;line-height:1.65}.own .bubble{background:var(--own-bubble);border-radius:13px 13px 3px 13px}.message small{font-size:10px;margin:0 0 5px;opacity:.6}.message-label{display:block;font-size:10px;margin-bottom:6px;opacity:.6}.bubble p{margin:8px 0 0}.bubble img{display:block;max-width:100%;height:auto}.timestamp{text-align:center;font-size:10px;opacity:.5}.phone-footer{height:44px;display:flex;align-items:center;gap:10px;padding:6px 16px;border-top:1px solid #8882;flex-shrink:0}.phone-input{height:27px;border:1px solid #8883;background:var(--bubble);border-radius:16px;flex:1}.phone-home{width:94px;height:4px;border-radius:8px;background:currentColor;opacity:.3;margin:6px auto 9px;flex-shrink:0}summary{cursor:pointer}summary:focus-visible{outline:2px solid currentColor}details p{white-space:pre-wrap}.diagnostic{border:1px solid currentColor;padding:12px;font-size:13px}.phone-reader{padding:14px;overflow:hidden}.phone-reader main>h1{display:none}.phone-reader .chapter{padding:0;background:transparent}.phone-reader .chapter>h2{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}.phone-reader .phone{height:calc(100dvh - 28px);max-height:620px}.phone-reader .diagnostic,.phone-reader pre{position:relative;overflow:auto;max-height:85vh}.phone-chapter{padding-left:10px;padding-right:10px}@media(max-width:400px){body{padding:14px}.chapter{padding:14px}.phone-reader .chapter{padding:0}}
 ${MIXED_READER_CSS}
 ${PHONE_CSS}
 ${PROSE_CSS}
