@@ -88,10 +88,11 @@ export function usesGenericFont(value) {
   return text.split(',').map(part => part.trim().replace(/^['"]|['"]$/g, '').toLowerCase()).every(part => !part || GENERIC_FAMILIES.has(part));
 }
 
+// 「字体跟随酒馆」打开时，正文、标题、预览一律用酒馆的全局字体，不再保留主题自带字体；
+// 关掉之后才回到主题作者选的字体。
 export function effectiveFont(themeFont, follow = true) {
-  if (!follow) return themeFont || FALLBACK_FONT;
-  if (usesGenericFont(themeFont)) return tavernFontFamily();
-  return themeFont;
+  if (follow) return tavernFontFamily(themeFont || FALLBACK_FONT);
+  return themeFont || FALLBACK_FONT;
 }
 
 // 阅读区在独立沙箱 iframe 里，酒馆用 @import 载入的网络字体不会跟进去，这里把字体的
