@@ -188,6 +188,31 @@ function safeCssValue(value) {
 }
 
 // 动态生成的“跟随酒馆”阅读主题。生成章节时会被冻结成章节自己的样式快照。
+// 跟随酒馆：除了配色和字体，也把酒馆当前生效的主题样式搬进阅读区。
+// 酒馆把主题 CSS 放在 #custom-style 里，读文本比请求整份设置（二十多 MB）便宜得多。
+let liveDecor = { key: '', css: '', ready: false, busy: false };
+export function tavernDecorCss() { return liveDecor.ready ? liveDecor.css : ''; }
+export function primeTavernDecor(onReady) {
+  if (liveDecor.busy) return;
+  const text = document.getElementById('custom-style')?.textContent || '';
+  if (text.trim().length < 200) return;
+  const key = `${text.length}:${text.slice(0, 120)}`;
+  if (liveDecor.key === key) { if (liveDecor.ready) onReady?.(); return; }
+  liveDecor.busy = true;
+  // 放到空闲时段再解析，避免打开面板那一下卡住酒馆。
+  const run = () => {
+    try {
+      const converted = convertTavernCss(text, 40000).css;
+      liveDecor = { key, css: converted, ready: Boolean(converted), busy: false };
+    } catch {
+      liveDecor = { key, css: '', ready: false, busy: false };
+    }
+    try { onReady?.(); } catch { /* 回调里的重绘失败不影响面板 */ }
+  };
+  const idle = window.requestIdleCallback;
+  if (idle) idle(run, { timeout: 2000 }); else setTimeout(run, 240);
+}
+
 export function tavernReadingTheme(mode = 'prose', { background = false, font = true } = {}) {
   const colors = tavernColors(), typography = chatTypography();
   const image = background ? tavernChatBackground() : '';
@@ -204,6 +229,8 @@ export function tavernReadingTheme(mode = 'prose', { background = false, font = 
     image && `background-image:linear-gradient(${colors.paper || 'rgba(255,255,255,.82)'},${colors.paper || 'rgba(255,255,255,.82)'}),url("${image}");background-size:cover;background-position:center`,
   ].filter(Boolean);
   if (declarations.length) rules.push(`${root}{${declarations.join(';')}}`);
+  const decor = tavernDecorCss();
+  if (decor) rules.push(decor);
   return { id: tavernThemeId(mode), name: '跟随酒馆', mode, tokens, css: rules.join('\n') };
 }
 
@@ -307,11 +334,62 @@ function dropBrokenRules(css) {
   return out.join('');
 }
 
+// 逐条校验：能通过阅读区校验的规则留下，个别过不了（老式转义、奇怪属性）就单条剔除，
+// 避免一条坏规则让整套装饰全部作废。
+function dropInvalidRules(css) {
+  const text = String(css || '');
+  if (!text.trim()) return '';
+  const kept = [];
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    let depth = 0, inStr = null, j = i, open = -1;
+    for (; j < n; j++) {
+      const ch = text[j];
+      if (inStr) { if (ch === '\\') { j++; continue; } if (ch === inStr) inStr = null; continue; }
+      if (ch === '"' || ch === "'") { inStr = ch; continue; }
+      if (ch === '{') { if (depth === 0) open = j; depth++; }
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+    }
+    if (open < 0) break;
+    const rule = text.slice(i, j + 1).trim();
+    if (rule) { try { parseThemeCss(rule); kept.push(rule); } catch { /* 单条坏规则丢弃 */ } }
+    i = j + 1;
+  }
+  return kept.join('\n');
+}
+
+// 大份酒馆样式（几百 KB）里绝大多数是界面规则。先按顶层切分，只把可能对应聊天内容的块送去解析，
+// 既省掉解析开销，也避免界面规则里的怪写法拖累整份转换。
+function prefilterTavernCss(text) {
+  const source = String(text || '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const hit = /#chat\b|\.mes(?![a-z])|^body\b|\.message\b/i;
+  const out = [];
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    let depth = 0, inStr = null, j = i, open = -1;
+    for (; j < n; j++) {
+      const ch = source[j];
+      if (inStr) { if (ch === '\\') { j++; continue; } if (ch === inStr) inStr = null; continue; }
+      if (ch === '"' || ch === "'") { inStr = ch; continue; }
+      if (ch === '{') { if (depth === 0) open = j; depth++; }
+      else if (ch === '}') { depth--; if (depth === 0) break; }
+    }
+    if (open < 0) break;
+    const rule = source.slice(i, j + 1);
+    if (hit.test(rule.slice(0, open)) || /^@media/i.test(rule.trim()) && hit.test(rule)) out.push(rule);
+    i = j + 1;
+  }
+  return out.join('\n');
+}
+
 // 把酒馆自定义 CSS 里能对应到阅读区选择器的规则转成主题 CSS；其余界面规则丢弃。
 export function convertTavernCss(css, limit = 28000) {
   const warnings = [];
   let source = String(css || '');
   if (!source.trim()) return { css: '', warnings, kept: 0 };
+  if (source.length > 60000) source = prefilterTavernCss(source);
   source = source.replace(/@import[^;]*;/gi, '');
   let ast;
   // 酒馆美化里常有浏览器能容忍的小毛病，这里按可恢复方式解析，最后由主题校验兜底。
@@ -332,16 +410,8 @@ export function convertTavernCss(css, limit = 28000) {
   });
   let result = '';
   try { result = generate(ast); } catch { return { css: '', warnings: ['原美化 CSS 转换失败，已只套用配色与字体。'], kept: 0 }; }
-  // 逐条套用瞬息自己的主题校验，把浏览器能容忍、但阅读区不允许的写法剔掉（例如带本地路径的图片）。
-  walk(ast, (node, item, list) => {
-    if (node.type !== 'Rule' || insideKeyframes(node)) return;
-    try { parseThemeCss(generate(node)); } catch { list.remove(item); }
-  });
-  walk(ast, (node, item, list) => {
-    if (node.type !== 'Atrule' || /^(?:keyframes|import|charset)$/i.test(node.name)) return;
-    try { parseThemeCss(generate(node)); } catch { list.remove(item); }
-  });
-  try { result = generate(ast); } catch { result = ''; }
+  // 逐条校验太贵：整套主题库有几百个，每个主题几百条规则，会在打开美化页时明显卡顿。
+  // 改成先整份过校验，过不了才在 dropInvalidRules 里逐条拆，正常主题几乎零额外开销。
   // 阅读区的 HTML 校验不允许尖括号，组合符已在选择器里换成后代选择器。
   result = result.replace(/<\/style/gi, '');
   // 这个 vendor 解析器不暴露声明节点，装饰图只能按生成后的规则文本重新定位：
@@ -353,9 +423,19 @@ export function convertTavernCss(css, limit = 28000) {
     .replace(/quotes\s*:[^;}]*/gi, '')
   ;
   result = dropBrokenRules(result);
+  // 整份校验会因个别规则里的怪写法（转义、老式属性）一起失败，退回“只到配色”。
+  // 正常能过校验的主题不做逐条拆解，只有整份过不了时才逐条试，坏规则单条剔除。
+  const validCss = text => { try { parseThemeCss(text); return true; } catch { return false; } };
+  if (!validCss(result)) result = dropInvalidRules(result);
+  // 酒馆里 .mes 的百分比内边距是按头像/大图位置算的，搬到阅读区会把正文推到半屏以下，直接归零。
+  result = result.replace(/(\.chapter\{)([^}]*)\}/g, (all, head, body) => head + body.replace(/(padding|margin):[^;}]*%/gi, (m, prop) => `${prop}:0`) + '}');
+  // 有整幅贴图的主题会把 .chapter 设成透明，正文直接压在图上；给正文补一层半透明纸面，既保留贴图又不影响阅读。
+  if (/\.chapter[^{]*\{[^}]*background-image[^}]*url\(/i.test(result)) {
+    result += '.paper{position:relative;z-index:1;background:color-mix(in srgb,var(--reader-bg) 90%,transparent);backdrop-filter:blur(2px)}';
+  }
   // 变量定义挂在 .chapter 上，正文与小手机章节共用同一套类名，装饰里的 var() 才拿得到值。
   const varBlock = vars.size ? `.chapter{position:relative;${[...vars].map(([key, value]) => `${key}:${value}`).join(';')}}` : '';
-  if (varBlock) result = varBlock + result;
+  if (varBlock) result = (dropInvalidRules(varBlock) ? varBlock : '') + result;
   if (result.length > limit && varBlock.length <= limit - 60) {
     const cut = result.lastIndexOf('}', limit);
     result = cut > 0 ? result.slice(0, cut + 1) : '';

@@ -26,7 +26,7 @@ import { VERSION, modeLabel, clone, id, newStory, appendChapter, invalidateSumma
 import { LibraryStore } from './storage.js';
 import { LibraryLocation } from './library-location.js';
 import { BUILTIN_THEMES, validateTheme, resolveTheme, captureReadingTheme, resolveChapterTheme, removeImportedTheme, themeChoices, isTavernThemeId, tavernThemeId, TAVERN_THEME_IDS, tavernReadingTheme } from './themes.js';
-import { convertTavernTheme, isTavernThemeJson, tavernFontFamily, tavernChatBackground } from './tavern-look.js';
+import { convertTavernTheme, isTavernThemeJson, tavernFontFamily, tavernChatBackground, primeTavernDecor } from './tavern-look.js';
 import { storyPlainText, storySourceText } from './story-copy.js';
 import { stripMixedForHistory, mixedStats } from './mixed-format.js';
 import { startTour } from './tour.js';
@@ -275,7 +275,13 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     if (shadow.querySelector('.skin-preview') && restorePreviews) { restorePreviews(); return; }
     if (ready) render();
   }
-  function open() { unread = false; launcher.querySelector('.unread').hidden = true; launcher.classList.remove('complete'); if (!dialog.open) dialog.showModal(); unparkPreviewFrames(); autoSync?.wake(); if (ready) refreshCatalog(false); startTourGuide(true); }
+  function open() { unread = false; launcher.querySelector('.unread').hidden = true; launcher.classList.remove('complete'); if (!dialog.open) dialog.showModal(); unparkPreviewFrames(); autoSync?.wake(); if (ready) refreshCatalog(false); primeLiveDecor(); startTourGuide(true); }
+  // 只有真的在用「跟随酒馆」时才去读酒馆当前主题样式；读完补一次重绘，预览与阅读区就带上装饰。
+  function primeLiveDecor() {
+    if (!ready) return;
+    if (![state.settings.proseTheme, state.settings.phoneTheme].some(value => isTavernThemeId(value))) return;
+    primeTavernDecor(() => { if (ready && !task && !editing) render(); });
+  }
   function toggleTheme() { if (!ready) return; state.settings.theme = state.settings.theme === 'night' ? 'day' : 'night'; root.dataset.theme = launcher.dataset.theme = state.settings.theme; themeButton.replaceChildren(windowIcon(state.settings.theme)); scheduleSave(); }
   function changeTab(value) { if (editing) { notify('请先保存或取消章节编辑。'); return; } tab = value; render(true); content.scrollTop = 0; }
   // 新手引导：第一次打开自动弹一次，之后点右上角「?」随时重看。
@@ -1309,6 +1315,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   }
   function selectReadingTheme(mode, themeId) {
     state.settings[mode === 'phone' ? 'phoneTheme' : 'proseTheme'] = themeId;
+    if (isTavernThemeId(themeId)) primeLiveDecor();
   }
   async function refreshCatalog(showNotice = true) {
     if (!ready || disposed || !store.health.writable) return;

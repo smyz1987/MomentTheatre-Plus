@@ -6,7 +6,8 @@ export class ReaderAssets {
     return this.db ||= new Promise(resolve => {
       try {
         // v2：图片改为压缩后内联，旧库里的原始大图会让装饰规则超长，换库名自然失效。
-        const request = indexedDB.open('shunxi-plus-reading-assets-v4', 1);
+        // v5：字体不再内联，旧库里的十几 MB 字体 base64 换库名自然失效。
+        const request = indexedDB.open('shunxi-plus-reading-assets-v5', 1);
         request.onupgradeneeded = () => request.result.createObjectStore('assets', { keyPath: 'url' });
         request.onsuccess = () => resolve(request.result);
         request.onerror = request.onblocked = () => resolve(null);
@@ -49,7 +50,7 @@ export class ReaderAssets {
           const response = await fetch(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'force-cache', signal: AbortSignal.timeout(12000) });
           if (!response.ok || Number(response.headers.get('content-length')) > 24 * 1024 * 1024) return url;
           const blob = await response.blob();
-          if (blob.size > 24 * 1024 * 1024 || !/^(image\/|font\/|application\/(octet-stream|font|x-font))/i.test(blob.type)) return url;
+          if (blob.size > 24 * 1024 * 1024 || !/^image\//i.test(blob.type)) return url;
           // 过大的装饰图（主题里的头图、壁纸动辄 1 MB）内联后单条 CSS 规则会超长而整条失效，
           // 这里按显示尺寸压到 720px 以内再转 data URI，透明背景保留。
           let source = blob;

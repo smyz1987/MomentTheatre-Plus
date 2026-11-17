@@ -25,8 +25,31 @@ export function parseThemeCss(css, context = 'stylesheet') {
   return ast;
 }
 
-function familyName(nodes) {
-  if (nodes.length === 1 && nodes[0].type === 'String') return nodes[0].value;
+// 有的主题会把整套中文字体（十几 MB base64）塞进 @font-face，阅读区每次渲染都要
+// 重新解码，预览会明显卡住。超过上限的字体规则整条丢掉，退回系统字体。
+export function trimFonts(css, max = 64000) {
+  const text = String(css || '');
+  if (text.length <= max) return text;
+  let out = '', i = 0;
+  while (i < text.length) {
+    const at = text.indexOf('@font-face', i);
+    if (at < 0) break;
+    const open = text.indexOf('{', at);
+    if (open < 0) break;
+    let depth = 0, end = open;
+    for (; end < text.length; end++) {
+      const ch = text[end];
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (!depth) break; }
+    }
+    const block = text.slice(at, end + 1);
+    out += text.slice(i, at);
+    if (block.length <= max) out += block;
+    i = end + 1;
+  }
+  return out + text.slice(i);
+}
+function familyName(nodes) {  if (nodes.length === 1 && nodes[0].type === 'String') return nodes[0].value;
   return nodes.every(n => n.type === 'Identifier') ? nodes.map(n => n.name).join(' ') : '';
 }
 function rewriteFamilies(value, names) {
@@ -59,6 +82,7 @@ export function compileThemeCss(css = '', fontFamily = 'system-ui,sans-serif', c
     const name = family && familyName(family.value.children.toArray());
     if (!name) throw new Error('主题 CSS 的 @font-face 需要有效的 font-family 名称。');
     if (!names.has(name.toLowerCase())) names.set(name.toLowerCase(), `shunxi-font-${chapter}-${names.size}`);
+    if (generate(node).length > 64000) { list.remove(item); return; }
     faces.push(node); list.remove(item);
   });
   walk(ast, node => {
