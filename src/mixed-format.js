@@ -13,18 +13,17 @@ const HTML_CLOSE_SRC = '<\\s*\\/\\s*(?:瞬息[-_]?html|shunxi[-_]?html|网页卡
 export const MIXED_MARKERS = { phone: '<小手机>', html: '<瞬息-html>' };
 export const MIXED_HTML_PLACEHOLDER = '（此处是一张已渲染的网页卡片，内容从略）';
 
-// 世界书里的卡片常用自己的包裹标签（例如 <orange>…</orange>、<bqb>…</bqb>），内容才是真正的 HTML。
-// 这里把「非标准标签 + 内部含 HTML 块级标签」的成对片段统一改写成 <瞬息-html>…</瞬息-html>，
-// 让后续渲染认得出；纯文字容器（如 <think>、<status> 里只写一句话）不会被误判成卡片。
+// 目前确认会产出 HTML 板块的只有「中插随机html」那本世界书，它统一用 <orange> 包裹。
+// 这里只认这一个自定义标签，避免把别的世界书里的 <ch1>、<bqb>、<status> 之类文字容器误当卡片。
+const CUSTOM_CARD_TAGS = new Set(['orange']);
 const HTML_TAG_RE = /<(div|span|table|style|section|p|ul|ol|img|br|a|h1|h2|h3|strong|em|center|svg)\b/i;
-const HTMLISH_TAGS = new Set(['div','span','table','style','section','p','ul','ol','img','br','a','h1','h2','h3','strong','em','center','svg','html','head','body','script','iframe','meta','link','title']);
 export function normalizeCustomCards(content, passes = 2) {
   let text = String(content ?? '');
   for (let i = 0; i < passes; i++) {
     let changed = false;
     text = text.replace(/<([a-zA-Z][a-zA-Z0-9_-]{1,24})>([\s\S]*?)<\/\1>/g, (whole, tag, inner) => {
       const name = tag.toLowerCase();
-      if (HTMLISH_TAGS.has(name) || name === '小手机' || name === '瞬息-html' || name === '网页卡片' || name === 'html卡片') return whole;
+      if (!CUSTOM_CARD_TAGS.has(name)) return whole;
       if (!HTML_TAG_RE.test(inner)) return whole;
       changed = true;
       return `<瞬息-html>${inner}</瞬息-html>`;
