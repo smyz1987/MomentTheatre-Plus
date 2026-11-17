@@ -86,8 +86,8 @@ export class TavernHost {
     return [...names];
   }
   libraryRemote() { return new ServerLibrary(() => this.getContext().getRequestHeaders()); }
-  // 酒馆“UI 主题”存的主题库随设置一起下发。这里取一次，只留下配色与“已转换好的装饰规则”，
-  // 原始 custom_css（整个库约 20MB）当场转成阅读区规则后丢掉，内存里只留约 2MB。
+  // 酒馆“UI 主题”存的主题库随设置一起下发。这里取一次，只留下配色和原始规则；
+  // 转换改成“选了哪套才转哪套”：一次转 426 套要好几秒，主线程会一直卡着，人只会在少数几套之间换。
   async tavernThemes({ refresh = false } = {}) {
     if (this.themesCache && !refresh) return this.themesCache;
     const headers = { ...this.getContext().getRequestHeaders(), 'Content-Type': 'application/json' };
@@ -99,25 +99,50 @@ export class TavernHost {
     this.themesCache = list.map(item => {
       const slim = { name: String(item?.name || '未命名主题') };
       for (const key of keep) if (item && item[key] !== undefined) slim[key] = item[key];
-      const css = convertTavernCss(String(item?.custom_css || '')).css;
-      if (css) slim.css = css;
+      const raw = String(item?.custom_css || '');
+      if (raw) slim.raw = raw;
       return slim;
     }).filter(item => item.name);
+    this.tavernCssCache = new Map();
+    // 原始 CSS 约 20MB，只是为了让“换主题”不用再拉一次设置；闲置三分钟就放掉。
+    clearTimeout(this.rawTimer);
+    this.rawTimer = setTimeout(() => this.releaseRawCss(), 180_000);
     return this.themesCache;
   }
-  // 结构级皮肤要的是“原封不动”的那套规则：只在选中某一套时读一次，读完缓存在本扩展里。
-  // 整个主题库约 20MB 不常驻内存，这里最多留 6 套（每套几十 KB）。
+  releaseRawCss() {
+    for (const theme of this.themesCache || []) delete theme.raw;
+    this.tavernCssCache = new Map();
+  }
+  async rawCssFor(name) {
+    const item = (this.themesCache || []).find(theme => theme.name === name);
+    if (item?.raw) return item.raw;
+    const headers = { ...this.getContext().getRequestHeaders(), 'Content-Type': 'application/json' };
+    const response = await fetch('/api/settings/get', { method: 'POST', headers, body: '{}' });
+    if (!response.ok) throw new Error(`酒馆主题库读取失败：HTTP ${response.status}。`);
+    const data = await response.json().catch(() => null);
+    const found = (Array.isArray(data?.themes) ? data.themes : []).find(theme => String(theme?.name || '') === name);
+    return String(found?.custom_css || '');
+  }
+  // 选中某套时只转这一套（13–50 ms），结果留 8 套，来回换也不重复转。
+  async tavernThemeCss(name, { refresh = false } = {}) {
+    const key = String(name || '');
+    const item = (this.themesCache || []).find(theme => theme.name === key);
+    if (!item) return '';
+    this.tavernCssCache ||= new Map();
+    if (!refresh && this.tavernCssCache.has(key)) return this.tavernCssCache.get(key);
+    const css = convertTavernCss(await this.rawCssFor(key)).css;
+    if (this.tavernCssCache.size >= 8) this.tavernCssCache.delete(this.tavernCssCache.keys().next().value);
+    this.tavernCssCache.set(key, css);
+    return css;
+  }
+  // 结构级皮肤要的是“原封不动”的那套规则：缓存里已有原始 CSS 就直接算，不用再拉一次设置。
+  // 整个主题库约 20MB 不常驻，这里最多留 6 套（每套几十 KB）。
   async tavernNativeCss(name, { refresh = false } = {}) {
     const key = String(name || '');
     if (!key) return '';
     this.nativeCache ||= new Map();
     if (!refresh && this.nativeCache.has(key)) return this.nativeCache.get(key);
-    const headers = { ...this.getContext().getRequestHeaders(), 'Content-Type': 'application/json' };
-    const response = await fetch('/api/settings/get', { method: 'POST', headers, body: '{}' });
-    if (!response.ok) throw new Error(`酒馆主题库读取失败：HTTP ${response.status}。`);
-    const data = await response.json().catch(() => null);
-    const item = (Array.isArray(data?.themes) ? data.themes : []).find(theme => String(theme?.name || '') === key);
-    const native = scopeTavernCss(String(item?.custom_css || ''));
+    const native = scopeTavernCss(await this.rawCssFor(key));
     if (this.nativeCache.size >= 6) this.nativeCache.delete(this.nativeCache.keys().next().value);
     this.nativeCache.set(key, native);
     return native;
