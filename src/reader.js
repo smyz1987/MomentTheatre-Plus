@@ -8,7 +8,7 @@ import { scopeCss } from './scope-css.js';
 import { renderRegexProse } from './preset-regex.js';
 import { emptyProseIssue, originalProse } from './prose-diagnostics.js';
 import { effectiveFont, tavernFontLinks } from './tavern-look.js';
-import { readableMixedSegments, sanitizeCardHtml, MIXED_CAPS } from './mixed-format.js';
+import { readableMixedSegments, sanitizeCardHtml, hasMixedBlocks, MIXED_CAPS } from './mixed-format.js';
 
 // 阅读区里 CSS 的 background-image 拿不到酒馆美化的装饰图（沙箱文档会忽略这类外部/内联图），
 // 所以把主题里的线圈单独取出来，用真正的 <img> 放进章节，跟着主题变量定位。
@@ -152,7 +152,9 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     compiled.css = trimFonts(compiled.css);
     const vars = `--reader-bg:${t.background || '#F9F8F6'};--reader-ink:${t.color || '#1C1C1C'};--reader-font:${compiled.fontFamily};--reader-size:${t.fontSize || '17px'};--reader-scale:${readScale};--reader-leading:${t.lineHeight || '1.9'};--bubble:${t.bubble || '#fff'};--own-bubble:${t.ownBubble || '#E3E1DB'}`;
     let content;
-    if (mode === 'mixed') {
+    // 正文／小手机章节里也可能出现世界书带来的 <瞬息-html> 卡片：只要真的写了标记，就按卡片渲染，
+    // 不再要求整节必须是「混合」模式；没有标记时仍是原来的纯正文，不强行插入任何格式。
+    if (mode === 'mixed' || (mode !== 'html' && hasMixedBlocks(chapter.content))) {
       const segments = readableMixedSegments(chapter.content);
       const chapterCards = segments.filter(segment => segment.kind === 'html').length;
       // 整篇一起渲染时还有多少张卡片的余量；导出 HTML 时不设限。
