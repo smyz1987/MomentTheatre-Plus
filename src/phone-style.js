@@ -9,11 +9,9 @@ body.phone-reader,.phone-chapter{background:transparent!important}
 .message-avatar{display:block;width:var(--avatar-size);height:var(--avatar-size);flex:0 0 var(--avatar-size);border-radius:50%;background:#8882 var(--char-avatar) center/cover no-repeat}.own .message-avatar{background-image:var(--user-avatar)}.message-avatar.avatar-ghost{visibility:hidden}
 .quote-line{display:block;font:12px/1.6 system-ui,sans-serif;opacity:.72;margin:3px 2px;overflow-wrap:anywhere}
 .quote-wechat{border-left:3px solid currentColor;padding-left:6px}
-.quote-qq{font-size:13px;display:flex;align-items:center;gap:4px}.quote-qq .phone-icon{width:14px;height:14px;flex:0 0 auto}
+
 .foreign-dash{display:block;border-top:1px dashed #b5b5b5;margin:9px 0 7px;height:0}
 .footer-set{display:flex;align-items:center}
-.footer-spinner{display:block;width:16px;height:16px;border:2px solid #c9c9c9;border-top-color:transparent;border-radius:50%;animation:phone-spin 1s linear infinite;margin-inline:auto}
-@keyframes phone-spin{to{transform:rotate(360deg)}}
 .footer-emoji{display:none;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#3d3d3d;color:#fff}
 .footer-emoji .phone-icon{width:18px;height:18px}
 .footer-voice{display:none;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#ececec;color:#9a9a9a}
@@ -90,7 +88,6 @@ body.phone-reader,.phone-chapter{background:transparent!important}
 .skin-footer .phone-icon{width:21px;height:21px;flex:0 0 auto;opacity:.85}
 .skin-footer .phone-input{flex:1;height:30px;min-width:0}
 .skin-footer .footer-caption{flex:0 0 auto;font:italic 400 13px/1.2 Georgia,serif;opacity:.78;white-space:nowrap}
-.skin-footer .footer-mic{display:flex;flex:0 0 auto}
 .time-divider{text-align:center;font:400 11px/1.6 system-ui,sans-serif;opacity:.55;margin:13px 0 3px}
 .read-receipt{display:block;font:400 10px/1.5 system-ui,sans-serif;opacity:.55;margin-top:3px}
 .bubble-time{display:inline-block;margin-left:9px;font:400 11px/1.4 system-ui,sans-serif;opacity:.55;vertical-align:bottom;white-space:nowrap}

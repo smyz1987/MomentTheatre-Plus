@@ -8,7 +8,11 @@ export function avatarUrl(value) {
   } catch { return ''; }
 }
 export function phoneAppearance(value) {
-  return { remark: typeof value?.remark === 'string' ? value.remark.trim().slice(0, 120) : '', userAvatar: avatarUrl(value?.userAvatar), charAvatar: avatarUrl(value?.charAvatar), background: avatarUrl(value?.background) };
+  const frost = Number(value?.frost);
+  return { remark: typeof value?.remark === 'string' ? value.remark.trim().slice(0, 120) : '', userAvatar: avatarUrl(value?.userAvatar), charAvatar: avatarUrl(value?.charAvatar), background: avatarUrl(value?.background),
+    // 梦境白磨砂浓度（0.15–0.95）与低性能模式（关闭磨砂模糊），仅 Guardian 系皮肤消费
+    frost: Number.isFinite(frost) && frost >= 0.15 && frost <= 0.95 ? Math.round(frost * 100) / 100 : '',
+    perf: value?.perf === true };
 }
 
 export async function avatarFile(file) {

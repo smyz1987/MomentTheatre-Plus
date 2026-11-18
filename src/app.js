@@ -1161,10 +1161,17 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const bgLink = el('input', { type: 'url', value: values.background.startsWith('data:') ? '' : values.background, placeholder: values.background.startsWith('data:') ? '已选择本地图片' : 'https://…（竖屏图效果最佳）', onInput: e => {
       values.background = e.target.value.trim(); error.hidden = true;
     } });
+    // 磨砂强度滑杆（仅梦境白皮肤消费）与低性能模式开关
+    const frostVal = el('span', { class: 'muted' }, values.frost ? Math.round(values.frost * 100) + '%' : '默认 62%');
+    const frostRange = el('input', { type: 'range', min: 15, max: 95, step: 5, value: values.frost ? Math.round(values.frost * 100) : 62, onInput: e => {
+      values.frost = Number(e.target.value) / 100; frostVal.textContent = e.target.value + '%'; error.hidden = true;
+    } });
+    const perfCheck = el('input', { type: 'checkbox', checked: values.perf === true, onChange: e => { values.perf = e.target.checked; } });
+    const perfField = el('label', { class: 'field-label', style: 'display:flex;align-items:center;gap:8px;font-weight:normal' }, perfCheck, '低性能模式（关闭磨砂模糊，核显机器更流畅）');
     const bgField = el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '小手机背景'),
       label('背景图直链', bgLink),
       el('div', { class: 'actions' }, button('恢复默认', () => { values.background = ''; bgLink.value = ''; bgLink.placeholder = 'https://…（竖屏图效果最佳）'; })));
-    pop = popup('修改头像与背景', el('div', {}, el('div', { class: 'avatar-fields' }, fields, bgField), el('small', { class: 'muted' }, '本地图片会缩小为静态头像，保留透明背景；背景图建议使用竖屏直链，三种皮肤（梦境白／星空夜／深海蓝）会以磨砂形式透出。'), error), [button('取消', () => pop.close()), button('确定', () => action(async () => {
+    pop = popup('修改头像与背景', el('div', {}, el('div', { class: 'avatar-fields' }, fields, bgField), el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '磨砂强度（梦境白）'), el('div', { style: 'display:flex;align-items:center;gap:10px' }, frostRange, frostVal)), perfField, el('small', { class: 'muted' }, '本地图片会缩小为静态头像，保留透明背景；背景图建议使用竖屏直链，三种皮肤（梦境白／星空夜／深海蓝）会以磨砂形式透出。'), error), [button('取消', () => pop.close()), button('确定', () => action(async () => {
       pop.inert = true; error.hidden = true;
       try {
         if (loading) throw new Error('图片仍在读取，请稍后确认。');
@@ -1175,7 +1182,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         if (values.background && !avatarUrl(values.background)) throw new Error('背景图请使用 HTTP(S) 图片直链。');
         values.background = avatarUrl(values.background);
         await Promise.all([checkAvatarImage(values.userAvatar), checkAvatarImage(values.charAvatar), checkAvatarImage(values.background)]);
-        await savePhoneAppearance({ ...phoneAppearance(state.settings.phoneAppearance), userAvatar: values.userAvatar, charAvatar: values.charAvatar, background: values.background });
+        await savePhoneAppearance({ ...phoneAppearance(state.settings.phoneAppearance), userAvatar: values.userAvatar, charAvatar: values.charAvatar, background: values.background, frost: values.frost || '', perf: values.perf === true });
         pop.close(); refresh();
       } catch (e) { error.hidden = false; error.textContent = e.message; }
       finally { pop.inert = false; }

@@ -91,6 +91,12 @@ function phoneHtml(messages, characterName, appearance, chapterNumber, layout = 
   const avatars = [['.own', look.userAvatar], [':not(.own)', group ? '' : look.charAvatar]].filter(([, url]) => url).map(([side, url]) => `${group ? '.phone.phone-group' : '.phone:not(.phone-group)'} .message${side} .message-avatar{background-image:url("${url.replace(/["\\<>]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ')}")!important}`).join('');
   // 用户自选背景：Guardian 系列覆盖装饰层（并隐藏默认水印装饰），其余皮肤覆盖屏幕背景。
   const skinBgRules = [];
+  if (skin === 'guardian') {
+    const vars = [];
+    if (look.frost) vars.push(`--skin-frost:${look.frost}`);
+    if (look.perf) vars.push('--skin-filter:none');
+    if (vars.length) skinBgRules.push(`.phone{${vars.join(';')}}`);
+  }
   if (look.background) {
     const bg = look.background.replace(/["\\<>]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ');
     if (skin === 'guardian') {
