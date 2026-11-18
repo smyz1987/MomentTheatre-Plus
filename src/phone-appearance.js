@@ -8,7 +8,7 @@ export function avatarUrl(value) {
   } catch { return ''; }
 }
 export function phoneAppearance(value) {
-  return { remark: typeof value?.remark === 'string' ? value.remark.trim().slice(0, 120) : '', userAvatar: avatarUrl(value?.userAvatar), charAvatar: avatarUrl(value?.charAvatar) };
+  return { remark: typeof value?.remark === 'string' ? value.remark.trim().slice(0, 120) : '', userAvatar: avatarUrl(value?.userAvatar), charAvatar: avatarUrl(value?.charAvatar), background: avatarUrl(value?.background) };
 }
 
 export async function avatarFile(file) {

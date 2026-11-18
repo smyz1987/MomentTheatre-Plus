@@ -39,7 +39,7 @@ function normalizeMessage(raw, names) {
   const type = typeOf(raw.type || 'text'), sender = member ? 'char' : senderOf(raw.sender, names);
   if (!type || !sender) return null;
   const item = { type, sender, ...(group ? { group, ...(sender === 'char' ? { speaker: scalar(member?.[1] || raw.speaker || names.character || '角色').trim().slice(0, 120) } : {}) } : {}), ...(!group && label ? { label } : {}) };
-  for (const key of ['time', 'text', 'duration', 'amount', 'status', 'url', 'title', 'description', 'source', 'thumbnail', 'address', 'sticker']) {
+  for (const key of ['time', 'text', 'duration', 'amount', 'status', 'url', 'title', 'description', 'source', 'thumbnail', 'address', 'sticker', 'reply', 'replyName']) {
     const value = key === 'url' && type === 'sticker' ? localStickerUrl(raw[key]) || scalar(raw[key]) : scalar(raw[key]); if (value) item[key] = value;
   }
   if (item.status) item.status = phoneStatus(item.status);
@@ -91,6 +91,15 @@ function lineMessage(line, names) {
   const sender = names.group && /^成员[:：].+/u.test(tokenSender) ? tokenSender : senderOf(tokenSender, names);
   if (!sender || parts.length < 3) return null;
   const token = parts[2]?.trim();
+  // 引用回复行：[sender|time|引用|被引用内容|正文]，带名字时为 [sender|time|引用|名字|被引用内容|正文]。
+  if (token === '引用' && parts.length >= 4) {
+    const rest = parts.slice(3).map(value => value.trim());
+    const reply = rest.length >= 3 ? rest[1] : rest[0];
+    const replyName = rest.length >= 3 ? rest[0] : '';
+    const text = (rest.length >= 3 ? rest.slice(2) : rest.slice(1)).join('|').trim();
+    if (!reply || !text) return null;
+    return { sender, time: parts[1].trim(), type: 'text', ...(replyName ? { replyName } : {}), reply, text };
+  }
   // Four fields with a numeric third field are a transfer; three fields remain speech.
   if (parts.length === 4 && amountPattern.test(token)) return { sender, time: parts[1].trim(), type: 'transfer', amount: token, text: parts[3] };
   const call = lookup(callLabels, token);
@@ -339,6 +348,7 @@ function serializeMessage(m) {
       if (action) return '[' + [m.sender, m.time || '', action, ...(m.duration ? [m.duration] : [])].map(encode).join('|') + ']';
     }
     const values = fields[m.type].map(key => m[key] || ''); while (values.length > 1 && !values.at(-1)) values.pop();
+    if (m.type === 'text' && m.reply) return '[' + [m.sender, m.time || '', '引用', ...(m.replyName ? [m.replyName] : []), m.reply, m.text || ''].map(encode).join('|') + ']';
     return '[' + [m.sender, m.time || '', ...(m.type === 'text' ? [] : [labels[m.type]]), ...values].map(encode).join('|') + ']';
 }
 // 角色卡的表情包常写成「中文名+随机串.扩展名」（小狗爱心yok51c.gif），
@@ -410,6 +420,8 @@ export function phonePrompt(library = []) {
 [char|23:57|撤回|撤回前的原消息]
 </小手机>
 普通消息固定三段：[发送人|时间|实际对话内容]，例如 [char|22:16|接电话。]。不要在对话前添加“普通文字”“文字”或“text”类型字段；以上真实对话只是格式示例，请按当前剧情写内容。
+引用回复固定五段（名字可省略成四段）：[发送人|时间|引用|被引用者名字|被引用内容|我的回复]，只在本条消息确实回应某句已有消息时使用，例如 [user|22:17|引用|对方|你明天想吃什么？|随便，你定的都好吃]。
+对方角色说外语（含繁体中文）时，同一条消息里先写原文行，再用 \n 换行写简体中文翻译行（可多行），框架会自动画出分隔；对方说简体中文时不写翻译。
 转账固定四段：发送人、时间、纯数字金额、备注；不写转账类型、￥符号或待收款，插件自动补齐。备注可以留空。
 通话固定用发起语音／接受语音／拒绝语音／结束语音或对应的视频词。发起和响应分开输出，拒绝或接受由响应者发送；结束时才添加可选时长，不写空的状态字段或多余竖线。
 撤回只占一条消息：只输出 [char|21:03|撤回|哈哈]，不得先输出 [char|21:03|哈哈] 再输出撤回行。准备撤回的原消息直接写入撤回行的最后一段，框架会同时显示原文与已撤回提示；也不要另写“撤回了一条消息”的普通文字行。撤回和通话回应适用于全部手机主题。

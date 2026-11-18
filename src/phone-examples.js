@@ -2,7 +2,7 @@ import { DEFAULT_STICKERS } from './default-stickers.js';
 // Offline examples for the reading-style selector and simulated generation.
 export const PHONE_EXAMPLES = [
   { type: 'text', sender: 'char', time: '23:48', text: '到家了吗？雨好像又大了。' },
-  { type: 'text', sender: 'user', time: '23:48', text: '刚到。给你留了一杯热咖啡。' },
+  { type: 'text', sender: 'user', time: '23:48', text: '刚到。给你留了一杯热咖啡。', reply: '到家了吗？雨好像又大了。', replyName: '对方' },
   { type: 'voice', sender: 'char', time: '23:49', duration: '12″', text: '刚把店门关好。明天一起吃早餐吧，我知道一家很好吃的小店。' },
   { type: 'transfer', sender: 'char', time: '23:49', amount: '¥ 52.00', status: '待收款', text: '明天的咖啡，我请。' },
   { type: 'sticker', sender: 'user', time: '23:50', sticker: '严肃', url: DEFAULT_STICKERS.find(row => row.name === '严肃').url, text: '严肃' },

@@ -12,6 +12,9 @@ export function resolveLegacyTheme(state, mode, themeId) {
   return state.themes.find(t => t.id === themeId && t.mode === target) || LEGACY_THEMES.find(t => t.id === themeId && t.mode === target) || resolveTheme(state, mode, themeId);
 }
 const tokenKeys = new Set(['background', 'color', 'fontFamily', 'fontSize', 'lineHeight', 'bubble', 'ownBubble']);
+// 小手机皮肤布局：classic 是默认框架；guardian／wechat／qq 是三种结构级皮肤，
+// 由 reader 按布局渲染不同的标题栏、消息行与装饰底栏，CSS 只负责配色。
+export const PHONE_LAYOUTS = ['classic', 'guardian', 'wechat', 'qq'];
 // Cache successful CSS validation only, keyed by exact input, with a fixed bound.
 // Returned chapter snapshots and their tokens always remain independent objects.
 const verifiedCss = new Set();
@@ -32,6 +35,7 @@ export function validateTheme(raw, { allowBuiltInId = false } = {}) {
   }
   return { id: typeof raw.id === 'string' && (/^custom-[a-z0-9-]{1,80}$/.test(raw.id) || allowBuiltInId && ([...BUILTIN_THEMES, ...LEGACY_THEMES].some(t => t.id === raw.id && t.mode === raw.mode) || isTavernThemeId(raw.id))) ? raw.id : `custom-${createId()}`,
     name: raw.name.trim().slice(0, 60), mode: raw.mode, tokens, css,
+    ...(raw.mode === 'phone' && PHONE_LAYOUTS.includes(raw.layout) ? { layout: raw.layout } : {}),
     // 结构级皮肤用的原始规则：跟主题一起存，下次打开不用再读一次 27MB 的设置。
     native: typeof raw.native === 'string' && raw.native.length <= 30000 && !/[<>]/.test(raw.native) ? raw.native : undefined };
 }

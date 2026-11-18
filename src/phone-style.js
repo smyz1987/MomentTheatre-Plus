@@ -6,7 +6,19 @@ html{color-scheme:light}
 body.phone-reader,.phone-chapter{background:transparent!important}
 .phone{--user-avatar:url("${USER_AVATAR}");--char-avatar:url("${CHAR_AVATAR}");--avatar-size:32px;--message-gap:8px}
 .message{flex-direction:row;align-items:flex-start;gap:var(--message-gap);margin:18px 0}.message.own{flex-direction:row-reverse;align-items:flex-start}
-.message-avatar{display:block;width:var(--avatar-size);height:var(--avatar-size);flex:0 0 var(--avatar-size);border-radius:50%;background:#8882 var(--char-avatar) center/cover no-repeat}.own .message-avatar{background-image:var(--user-avatar)}
+.message-avatar{display:block;width:var(--avatar-size);height:var(--avatar-size);flex:0 0 var(--avatar-size);border-radius:50%;background:#8882 var(--char-avatar) center/cover no-repeat}.own .message-avatar{background-image:var(--user-avatar)}.message-avatar.avatar-ghost{visibility:hidden}
+.quote-line{display:block;font:12px/1.6 system-ui,sans-serif;opacity:.72;margin:3px 2px;overflow-wrap:anywhere}
+.quote-wechat{border-left:3px solid currentColor;padding-left:6px}
+.quote-qq{font-size:13px;display:flex;align-items:center;gap:4px}.quote-qq .phone-icon{width:14px;height:14px;flex:0 0 auto}
+.foreign-dash{display:block;border-top:1px dashed #b5b5b5;margin:9px 0 7px;height:0}
+.footer-set{display:flex;align-items:center}
+.footer-spinner{display:block;width:16px;height:16px;border:2px solid #c9c9c9;border-top-color:transparent;border-radius:50%;animation:phone-spin 1s linear infinite;margin-inline:auto}
+@keyframes phone-spin{to{transform:rotate(360deg)}}
+.footer-emoji{display:none;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#3d3d3d;color:#fff}
+.footer-emoji .phone-icon{width:18px;height:18px}
+.footer-voice{display:none;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#ececec;color:#9a9a9a}
+.footer-voice .phone-icon{width:18px;height:18px}
+.footer-thumb{display:none;align-items:center}
 .message-content{max-width:calc(100% - 2 * (var(--avatar-size) + var(--message-gap)));min-width:0;display:flex;flex-direction:column;align-items:flex-start}.own .message-content{align-items:flex-end}.bubble{max-width:100%;min-width:0}
 .message-time{display:block;font:10px/1.5 system-ui,sans-serif;opacity:.45;margin-top:4px}
 .phone svg{display:block;width:22px;height:22px;flex-shrink:0}
@@ -51,4 +63,64 @@ body.phone-reader,.phone-chapter{background:transparent!important}
 .share-source>svg{width:13px;height:13px}.call-record{display:flex;align-items:center;gap:8px;font-size:13px}.call-record>svg{width:18px;height:18px}
 .retracted-message{display:flex;flex-direction:column;gap:6px;font:inherit}.retract-notice{font:inherit;opacity:.55}.retract-original{font:inherit;white-space:pre-wrap}
 @media(max-width:300px){.transfer-main{gap:7px;padding:12px 10px 8px}.transfer-main>svg{width:24px;height:24px}.transfer-main strong{font-size:16px}.share-description{gap:6px}.share-description>img,.share-thumbnail{width:32px;height:32px}}
+.phone.phone-skin-guardian,.phone.phone-skin-wechat,.phone.phone-skin-qq{width:min(430px,100%);height:740px}
+.skin-header{display:flex!important;align-items:center;gap:9px;padding:6px 16px 12px;direction:ltr!important}
+.skin-header .phone-back{flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.skin-header .phone-back .phone-icon{width:22px;height:22px;stroke-width:2.4}
+.skin-header .header-avatar{display:block;width:32px;height:32px;flex:0 0 32px;border-radius:50%;background-color:#8882;background-image:var(--char-avatar);background-position:center;background-size:cover;background-repeat:no-repeat}
+.phone.phone-group .skin-header .header-avatar{display:none}
+.skin-header .phone-contact-wrap{min-width:0}
+.skin-header .phone-contact{min-width:0}
+.skin-header .phone-contact-wrap .phone-contact{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phone-subtitle{display:block;font:italic 400 11px/1.45 Georgia,'Times New Roman',serif;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-icons{display:flex;align-items:center;gap:12px;flex:0 0 auto}
+.header-icons .phone-icon{width:20px;height:20px}
+.header-icon{display:flex;align-items:center;flex:0 0 auto}
+.header-icon .phone-icon{width:20px;height:20px}
+.skin-guardian-header .phone-back{flex:0 0 auto;text-align:left}
+.skin-guardian-header .phone-contact-wrap{flex:1;text-align:center;min-width:0}
+.skin-guardian-header .header-icon{flex:0 0 auto;justify-content:flex-end}
+.skin-wechat-header .phone-back{flex:0 0 auto;text-align:left}
+.skin-wechat-header .phone-contact{flex:0 1 auto;font-weight:600}
+.skin-wechat-header .header-icons{flex:1;justify-content:flex-end}
+.skin-qq-header .phone-contact-wrap{flex:1;text-align:left}
+.skin-qq-header .phone-subtitle{font-style:normal;font-family:system-ui,sans-serif;font-size:10px;opacity:.55}
+.skin-qq-header .header-icons.icons-alt{display:none}
+.skin-footer{display:flex;align-items:center;gap:9px;padding:8px 14px}
+.skin-footer .phone-icon{width:21px;height:21px;flex:0 0 auto;opacity:.85}
+.skin-footer .phone-input{flex:1;height:30px;min-width:0}
+.skin-footer .footer-caption{flex:0 0 auto;font:italic 400 13px/1.2 Georgia,serif;opacity:.78;white-space:nowrap}
+.skin-footer .footer-mic{display:flex;flex:0 0 auto}
+.time-divider{text-align:center;font:400 11px/1.6 system-ui,sans-serif;opacity:.55;margin:13px 0 3px}
+.read-receipt{display:block;font:400 10px/1.5 system-ui,sans-serif;opacity:.55;margin-top:3px}
+.bubble-time{display:inline-block;margin-left:9px;font:400 11px/1.4 system-ui,sans-serif;opacity:.55;vertical-align:bottom;white-space:nowrap}
+/* QQ 皮肤引用行：箭头／「〞」两种符号都写进 DOM，配色主题决定显示哪一个。
+   对方引用是「内容 + 箭头」，我方镜像为「箭头 + 内容」（对照示意图）。 */
+.quote-qq{display:flex;align-items:center;gap:8px;max-width:100%}
+.message.own .quote-qq{flex-direction:row-reverse}
+.quote-qq .quote-text{min-width:0;overflow-wrap:anywhere}
+.quote-qq .quote-arrow,.quote-qq .quote-mark{display:none;flex:0 0 auto}
+.quote-qq .quote-arrow .phone-icon{width:17px;height:17px}
+.quote-qq .quote-mark{font:700 15px/1 Georgia,serif;letter-spacing:-2px}
+/* 微信底栏输入槽为弹性容器，表情按钮贴右居中。 */
+.phone .skin-footer .phone-input{display:flex;align-items:center}
+/* 皮肤消息行间距由主题定义，这里只保证 cont 追加类可用。 */
+/* 微信皮肤旁白行（「开头的演出说明）与消息行的结构。 */
+.translate-line{display:block;min-width:0;overflow-wrap:anywhere}
+.phone-skin-wechat .foreign-line,.phone-skin-wechat .narration-line,.phone-skin-wechat .translate-line{display:block;min-width:0;overflow-wrap:anywhere}
+/* ==== 皮肤全屏化：参考图为整屏截图，去设备壳/侧键/滚动条/home 条 ==== */
+.phone.phone-skin-guardian,.phone.phone-skin-wechat,.phone.phone-skin-qq{width:min(430px,100%)!important;height:740px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+.phone.phone-skin-guardian::before,.phone.phone-skin-guardian::after,.phone.phone-skin-wechat::before,.phone.phone-skin-wechat::after,.phone.phone-skin-qq::before,.phone.phone-skin-qq::after{display:none!important}
+.phone.phone-skin-guardian .phone-screen,.phone.phone-skin-wechat .phone-screen,.phone.phone-skin-qq .phone-screen{border-radius:0!important;border:0!important;box-shadow:none!important}
+.phone.phone-skin-guardian .phone-home,.phone.phone-skin-wechat .phone-home,.phone.phone-skin-qq .phone-home{display:none!important}
+.phone.phone-skin-guardian .messages::-webkit-scrollbar,.phone.phone-skin-wechat .messages::-webkit-scrollbar,.phone.phone-skin-qq .messages::-webkit-scrollbar{display:none!important}
+.phone.phone-skin-guardian .messages,.phone.phone-skin-wechat .messages,.phone.phone-skin-qq .messages{scrollbar-width:none!important}
+.phone.phone-skin-guardian .message.own .message-content,.phone.phone-skin-wechat .message.own .message-content,.phone.phone-skin-qq .message.own .message-content{max-width:76%!important}
+/* Guardian 皮肤：时间画在气泡内部右侧（加 !important 压过带作用域前缀的主题 padding），
+   字号字重跟随气泡正文（对照示意图，时间与正文同字重）。 */
+.phone.phone-skin-guardian .message[data-type=text] .bubble{position:relative;padding-right:58px!important}
+.phone.phone-skin-guardian .bubble-time{position:absolute;right:14px;top:50%;transform:translateY(-50%);margin:0;font:inherit;opacity:1}
+/* 同组连续消息：与上一条贴得更近（抵消上一条的下边距，组内 5px 级间距）。 */
+.phone .message.cont{margin-top:-4px!important}
 `;
+

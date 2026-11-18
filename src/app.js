@@ -372,7 +372,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const issues = [];
     const html = renderReader(story, themeForChapter(story.chapters[index ?? 0] || {}), index, themeForChapter, warnings => {
       for (const warning of warnings) if (!readingWarnings.has(warning)) { readingWarnings.add(warning); report(new Error(warning), '正文正则'); }
-    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true, readScale: state.settings.readScale });
+    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true, readScale: state.settings.readScale, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) });
     const token = readerToken(html);
     const frame = el('iframe', { class: `reader-frame ${mode === 'phone' ? 'phone-frame' : 'prose-frame'}${mode === 'mixed' ? ' mixed-frame' : ''}`, title: story.title + '阅读区', sandbox: token ? 'allow-scripts allow-same-origin' : '', referrerpolicy: 'no-referrer' });
     if (token) readerTokens.set(frame, token);
@@ -1157,7 +1157,14 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         el('div', { class: 'actions' }, button('本地上传', () => upload.click(), { 'aria-label': `本地上传${title}` }),
           button('恢复默认', () => { request++; values[key] = ''; link.value = ''; link.placeholder = 'https://…'; paint(''); }, { 'aria-label': `恢复默认${title}` })), upload);
     });
-    pop = popup('修改头像', el('div', {}, el('div', { class: 'avatar-fields' }, fields), el('small', { class: 'muted' }, '本地图片会缩小为静态头像，保留透明背景。'), error), [button('取消', () => pop.close()), button('确定', () => action(async () => {
+    // 小手机背景图：仅支持直链（背景图不做本地压缩，避免画质损失）。
+    const bgLink = el('input', { type: 'url', value: values.background.startsWith('data:') ? '' : values.background, placeholder: values.background.startsWith('data:') ? '已选择本地图片' : 'https://…（竖屏图效果最佳）', onInput: e => {
+      values.background = e.target.value.trim(); error.hidden = true;
+    } });
+    const bgField = el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '小手机背景'),
+      label('背景图直链', bgLink),
+      el('div', { class: 'actions' }, button('恢复默认', () => { values.background = ''; bgLink.value = ''; bgLink.placeholder = 'https://…（竖屏图效果最佳）'; })));
+    pop = popup('修改头像与背景', el('div', {}, el('div', { class: 'avatar-fields' }, fields, bgField), el('small', { class: 'muted' }, '本地图片会缩小为静态头像，保留透明背景；背景图建议使用竖屏直链，三种皮肤（梦境白／星空夜／深海蓝）会以磨砂形式透出。'), error), [button('取消', () => pop.close()), button('确定', () => action(async () => {
       pop.inert = true; error.hidden = true;
       try {
         if (loading) throw new Error('图片仍在读取，请稍后确认。');
@@ -1165,8 +1172,10 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
           if (values[key] && !avatarUrl(values[key])) throw new Error(`${title}请使用 HTTP(S) 图片直链或本地上传。`);
           values[key] = avatarUrl(values[key]);
         }
-        await Promise.all([checkAvatarImage(values.userAvatar), checkAvatarImage(values.charAvatar)]);
-        await savePhoneAppearance({ ...phoneAppearance(state.settings.phoneAppearance), userAvatar: values.userAvatar, charAvatar: values.charAvatar });
+        if (values.background && !avatarUrl(values.background)) throw new Error('背景图请使用 HTTP(S) 图片直链。');
+        values.background = avatarUrl(values.background);
+        await Promise.all([checkAvatarImage(values.userAvatar), checkAvatarImage(values.charAvatar), checkAvatarImage(values.background)]);
+        await savePhoneAppearance({ ...phoneAppearance(state.settings.phoneAppearance), userAvatar: values.userAvatar, charAvatar: values.charAvatar, background: values.background });
         pop.close(); refresh();
       } catch (e) { error.hidden = false; error.textContent = e.message; }
       finally { pop.inert = false; }
@@ -1201,7 +1210,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       choice.addEventListener('focusin', activate); refreshPreview(); refreshers.push(refreshPreview);
       const refreshPhone = () => { activate(); refreshPreview(); };
       return el('div', { class: `skin-column ${skinPreview === mode ? 'current-preview' : ''}`, 'data-mode': mode, onPointerdown: activate }, dropdownField(title, choice), previewPanel,
-        mode === 'phone' ? el('div', { class: 'phone-customization' }, button('修改备注', () => editPhoneRemark(refreshPhone), { class: 'text-button' }), button('修改头像', () => editPhoneAvatars(refreshPhone), { class: 'text-button' })) : null);
+        mode === 'phone' ? el('div', { class: 'phone-customization' }, button('修改备注', () => editPhoneRemark(refreshPhone), { class: 'text-button' }), button('修改头像与背景', () => editPhoneAvatars(refreshPhone), { class: 'text-button' })) : null);
     });
     // 面板关闭时预览被 park，重新打开时由这里按当前主题重建。
     restorePreviews = () => { for (const refresh of refreshers) refresh(); };

@@ -1,6 +1,6 @@
 import { cardToken, cardFrame, readerBridge } from './regex-card.js';
 import { phoneAppearance } from './phone-appearance.js';
-import { builtInSticker, STICKER_URLS, phoneIcon, virtualMap } from './phone-assets.js';
+import { builtInSticker, STICKER_URLS, phoneIcon, phoneFilledIcon, virtualMap } from './phone-assets.js';
 import { PHONE_CSS } from './phone-style.js';
 import { PROSE_CSS } from './prose.js';
 import { compileThemeCss, trimFonts } from './theme-css.js';
@@ -64,18 +64,81 @@ const MIXED_READER_CSS = '.mixed-chapter{padding-bottom:10px}.mixed-phone{displa
 export function safeImage(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password || /^data:image\/(png|jpeg|gif|webp);base64,/i.test(value) ? value : ''; } catch { return ''; }
 }
-function phoneHtml(messages, characterName, appearance, chapterNumber) {
+// 繁体中文指示字（这些字形在简体里写作另一形）与简体指示字，用于判定"非简体中文"行。
+const TRADITIONAL_CHARS = '們個學會來時說對開關門長東車馬鳥雲語書體點華萬與專業區處備復豐嚴廳愛寶護發應誰親錢後裡認識關係覺得準動檢歷買賣張讓證據轉廢廣帶幫幹幾從憂藝藥虧無聲為願顯聽舊葉齊龍飛貴費樂標機構樣歲歡';
+const SIMPLIFIED_CHARS = '们个学会来时说对开关门长东车马鸟云语书体点华万与专业区处备复丰严厅爱宝护发应谁亲钱后里认关系觉得准动检历买卖张让证转废广带帮干从忧艺药亏无为声愿显听旧叶齐龙飞贵费乐标机构样岁欢';
+export function isForeignLine(line) {
+  const text = String(line ?? '');
+  if (!text.trim()) return false;
+  // 韩文／日文假名／西里尔文出现即为外语。
+  if (/[\uAC00-\uD7AF\u3040-\u30FF\u31F0-\u31FF\u0400-\u04FF]/.test(text)) return true;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  const han = (text.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || []).length;
+  // 拉丁字母成词且不亚于汉字（"I love you"），视为外语；"加了AKB48很好玩"不算。
+  if (latin >= 2 && latin >= han) return true;
+  const trad = [...TRADITIONAL_CHARS].filter(c => text.includes(c)).length;
+  const simp = [...SIMPLIFIED_CHARS].filter(c => text.includes(c)).length;
+  // 繁体指示字出现而简体指示字没有，视为繁体（=外语）。
+  return trad >= 1 && trad > simp;
+}
+function phoneHtml(messages, characterName, appearance, chapterNumber, layout = 'classic', charHandle = '') {
   const look = phoneAppearance(appearance);
   const group = messages[0]?.group || '', label = messages[0]?.label || '';
   characterName = group || look.remark || label || characterName;
+  const skin = ['guardian', 'wechat', 'qq'].includes(layout) ? layout : '';
   // Large data URLs can exceed the browser's custom-property value limit.
   // One scoped image declaration per side avoids that limit and duplication per message.
   const avatars = [['.own', look.userAvatar], [':not(.own)', group ? '' : look.charAvatar]].filter(([, url]) => url).map(([side, url]) => `${group ? '.phone.phone-group' : '.phone:not(.phone-group)'} .message${side} .message-avatar{background-image:url("${url.replace(/["\\<>]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ')}")!important}`).join('');
+  // 用户自选背景：Guardian 系列覆盖装饰层（并隐藏默认水印装饰），其余皮肤覆盖屏幕背景。
+  const skinBgRules = [];
+  if (look.background) {
+    const bg = look.background.replace(/["\\<>]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' ');
+    if (skin === 'guardian') {
+      skinBgRules.push(`.phone .phone-screen::before{background-image:url("${bg}")!important;background-size:cover!important;background-position:center!important;background-repeat:no-repeat!important}`);
+      skinBgRules.push(`.phone .phone-screen::after{display:none!important}`);
+    } else {
+      skinBgRules.push(`.phone .phone-screen{background-image:url("${bg}")!important;background-size:cover!important;background-position:center!important;background-repeat:no-repeat!important}`);
+    }
+  }
+  const skinOverrides = `${avatars || skinBgRules.length ? `<style>${scopeChapterCss([...(avatars ? [avatars] : []), ...skinBgRules], chapterNumber)}</style>` : ''}`;
   const clock = messages.find(m => m.time)?.time?.match(/\d{1,2}:\d{2}/)?.[0] || '09:41';
-  return `${avatars ? `<style>${scopeChapterCss(avatars, chapterNumber)}</style>` : ''}<div class="phone${group ? ' phone-group' : ''}"><div class="phone-screen"><div class="phone-status"><span>${escapeHtml(clock)}</span><span class="phone-island" aria-hidden="true"></span><span class="phone-battery" aria-hidden="true"><i></i></span></div><div class="phone-header" style="display:grid!important;grid-template-columns:24px minmax(0,1fr) 24px!important;column-gap:8px!important;padding-inline:17px!important;direction:ltr!important"><span class="phone-back" aria-hidden="true" style="grid-column:1!important;grid-row:1!important;text-align:left!important">‹</span><div class="phone-contact" style="grid-column:2!important;grid-row:1!important;text-align:center!important;min-width:0!important;width:100%!important;margin-inline:0!important;position:static!important;transform:none!important" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div></div><div class="messages" tabindex="0" role="region" aria-label="手机消息，可在屏幕内滚动">${messages.map(m => {
+  // 皮肤标题栏：Guardian 是居中标题＋花体副题＋定位图标；微信是返回＋头像＋名字＋通话图标；
+  // QQ 是返回＋头像＋名字＋@句柄，右侧两套图标由主题 CSS 决定显示哪一套。
+  const header = !skin
+    ? `<div class="phone-header" style="display:grid!important;grid-template-columns:24px minmax(0,1fr) 24px!important;column-gap:8px!important;padding-inline:17px!important;direction:ltr!important"><span class="phone-back" aria-hidden="true" style="grid-column:1!important;grid-row:1!important;text-align:left!important">‹</span><div class="phone-contact" style="grid-column:2!important;grid-row:1!important;text-align:center!important;min-width:0!important;width:100%!important;margin-inline:0!important;position:static!important;transform:none!important" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div></div>`
+    : skin === 'guardian'
+      ? `<div class="phone-header skin-header skin-guardian-header"><span class="phone-back" aria-hidden="true">${phoneIcon('back')}</span><div class="phone-contact-wrap"><div class="phone-contact" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div><div class="phone-subtitle">Own the moment</div></div><span class="header-icon" aria-hidden="true">${phoneFilledIcon('pin-orbit-f')}</span></div>`
+      : skin === 'wechat'
+        ? `<div class="phone-header skin-header skin-wechat-header"><span class="phone-back" aria-hidden="true">${phoneIcon('back')}</span><span class="header-avatar" aria-hidden="true"></span><div class="phone-contact" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div><span class="header-icons" aria-hidden="true">${phoneFilledIcon('call-f')}${phoneFilledIcon('video-f')}</span></div>`
+        : `<div class="phone-header skin-header skin-qq-header"><span class="phone-back" aria-hidden="true">${phoneIcon('back')}</span><span class="header-avatar" aria-hidden="true"></span><div class="phone-contact-wrap"><div class="phone-contact" title="${escapeHtml(characterName)}">${escapeHtml(characterName)}</div><div class="phone-subtitle">@${escapeHtml(charHandle || characterName)}</div></div><span class="header-icons icons-alt" aria-hidden="true">${phoneIcon('wifi')}${phoneIcon('gear')}</span><span class="header-icons icons-main" aria-hidden="true">${phoneFilledIcon('call-f')}${phoneFilledIcon('video-f')}</span></div>`;
+  // 皮肤装饰底栏。
+  const footer = !skin
+    ? `<div class="phone-footer" aria-hidden="true"><span class="phone-input"></span>${phoneIcon('plus')}</div>`
+    : skin === 'guardian'
+      ? `<div class="phone-footer skin-footer" aria-hidden="true"><span class="footer-caption">: loves</span><span class="phone-input"></span><span class="footer-caption">letter</span></div>`
+      : skin === 'wechat'
+        ? `<div class="phone-footer skin-footer" aria-hidden="true">${phoneFilledIcon('camera-f')}${phoneFilledIcon('image-f')}${phoneIcon('mic')}<span class="phone-input"><span class="footer-emoji">${phoneFilledIcon('emoji-f')}</span></span>${phoneFilledIcon('thumb-f')}</div>`
+        : `<div class="phone-footer skin-footer" aria-hidden="true"><span class="footer-set footer-set-mono" aria-hidden="true">${phoneFilledIcon('pin-f')}${phoneFilledIcon('image-slim')}${phoneFilledIcon('camera-f')}</span><span class="footer-set footer-set-main" aria-hidden="true">${phoneFilledIcon('camera-f')}${phoneFilledIcon('image-slim')}${phoneFilledIcon('mic-f')}</span><span class="phone-input"><span class="footer-burst">${phoneIcon('burst')}</span><span class="footer-emoji">${phoneFilledIcon('emoji-f')}</span></span><span class="footer-voice">${phoneFilledIcon('mic-holder')}</span><span class="footer-thumb">${phoneFilledIcon('thumb-f')}</span></div>`;
+  return `${skinOverrides}<div class="phone${group ? ' phone-group' : ''}${skin ? ' phone-skin-' + skin : ''}"><div class="phone-screen"><div class="phone-status"><span>${escapeHtml(clock)}</span><span class="phone-island" aria-hidden="true"></span><span class="phone-battery" aria-hidden="true"><i></i></span></div>${header}<div class="messages" tabindex="0" role="region" aria-label="手机消息，可在屏幕内滚动">${messages.map((m, index) => {
     const senderName = m.sender === 'user' ? '你' : m.sender === 'system' ? '系统' : m.speaker || '角色';
     const body = escapeHtml(m.text);
     let inner = body;
+    // 对方说外语（韩/日/俄文、拉丁字母、繁体中文）时的"翻译版本"格式，三种皮肤通用：
+    // 外文原文行 → 虚线分隔 → 简体中文译文行；纯简体输出不出现分隔。
+    // 微信皮肤另外把「开头的旁白行降为灰色小字。
+    if (m.sender !== 'user' && m.type === 'text') {
+      let prevForeign = false;
+      inner = m.text.split('\n').map(line => {
+        const trimmed = line.trim();
+        const narration = /^[「『]/.test(trimmed);
+        const foreign = isForeignLine(line);
+        const dashed = !narration && !foreign && prevForeign && trimmed ? '<span class="foreign-dash"></span>' : '';
+        prevForeign = foreign;
+        if (narration) return dashed + `<span class="narration-line">${escapeHtml(line)}</span>`;
+        if (dashed) return dashed + `<span class="translate-line">${escapeHtml(line)}</span>`;
+        return dashed + `<span class="foreign-line">${escapeHtml(line)}</span>`;
+      }).join('\n');
+    }
     if (m.type === 'voice') inner = `<details class="voice"><summary class="voice-bar"><span class="voice-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>${escapeHtml(m.duration || '语音')}</span><span class="voice-hint"><span class="voice-closed">转文字</span><span class="voice-open">收起</span></span></summary><div class="voice-transcript">${body || '暂无转写文字'}</div></details>`;
     if (m.type === 'transfer') inner = `<div class="transfer-card"><div class="transfer-main">${phoneIcon('transfer')}<div><strong style="--amount-size:${Math.max(11, Math.min(16, Math.floor(160 / (m.amount.length + 1))))}px">${escapeHtml(/^[¥￥$€£]/.test(m.amount) ? m.amount : '￥' + m.amount)}</strong><span>${escapeHtml(m.status || '待收款')}</span></div></div>${body ? `<p class="transfer-note">${body}</p>` : ''}<div class="transfer-foot">转账</div></div>`;
     if (m.type === 'image') {
@@ -94,10 +157,41 @@ function phoneHtml(messages, characterName, appearance, chapterNumber) {
     if (['call', 'video'].includes(m.type)) inner = `<span class="call-record">${phoneIcon(m.type)}<span>${escapeHtml(m.status && m.status !== '发起' ? m.status : '发起')}${m.type === 'call' ? '语音' : '视频'}通话${m.duration ? ' · ' + escapeHtml(m.duration) : ''}</span></span>`;
     if (m.type === 'retract') inner = `<div class="retracted-message"><span class="retract-notice">${escapeHtml(group ? senderName : m.sender === 'user' ? '你' : '对方')}撤回了一条消息</span><span class="retract-original">${body}</span></div>`;
     if (group && m.sender === 'system') return `<div class="group-event">${inner}${m.time ? `<time class="message-time">${escapeHtml(m.time)}</time>` : ''}</div>`;
+    // 皮肤聊天区：微信在会话开头和间隔 5 分钟以上时显示居中分隔行（对齐示意图顶部的
+    // 「周日 16:50」）；Guardian 只在真正的间隔处显示分隔行；QQ 不显示时间戳，
+    // 只在我方消息下显示"已读"。
+    const toMin = t => { const mm = t?.match(/(\d{1,2}):(\d{2})/); return mm ? +mm[1] * 60 + +mm[2] : null; };
+    const curMin = toMin(m.time), prevMin = toMin(messages[index - 1]?.time);
+    let gap = curMin !== null && prevMin !== null ? curMin - prevMin : null;
+    if (gap !== null && gap < 0) gap += 1440;
+    const showDivider = curMin !== null && (skin === 'wechat' ? prevMin === null || gap >= 5 : prevMin !== null && gap >= 5);
+    const divider = (skin === 'wechat' || skin === 'guardian') && showDivider ? `<div class="time-divider">${escapeHtml(m.time)}</div>` : '';
+    const lastOfRun = messages[index + 1]?.sender !== m.sender || (messages[index + 1]?.group || '') !== (m.group || '');
+    const firstOfRun = (messages[index - 1]?.sender || '') !== m.sender || (messages[index - 1]?.group || '') !== (m.group || '');
+    // Guardian 的已读回执带原始时间（时间加粗），QQ 只写"已读"且只出现在我方消息组末尾。
+    const receipt = skin === 'guardian' && m.sender === 'user' && lastOfRun ? `<span class="read-receipt">${m.time ? `<b>${escapeHtml(m.time)}</b> ` : ''}已读</span>` : skin === 'qq' && m.sender === 'user' && lastOfRun ? `<span class="read-receipt">已读</span>` : '';
+    const inlineTime = skin === 'guardian' && m.type === 'text' && m.time ? `<time class="bubble-time">${escapeHtml(m.time)}</time>` : '';
+    const belowTime = m.time && !inlineTime && (!skin || skin === 'guardian') ? `<time class="message-time">${escapeHtml(m.time)}</time>` : '';
+    // 微信风格里对方文本消息没有气泡，只是带下划线的原文（示意图中的外文原文格式）。
+    const bubbleCls = skin === 'wechat' && m.sender !== 'user' && (m.type || 'text') === 'text' ? 'bubble plain' : 'bubble';
+    // 引用回复：微信是「丨 名字：内容」竖线引用、QQ 是弯箭头小字，两种皮肤都放在
+    // 消息下方（对照示意图）；QQ 引用行同时携带箭头与「〞」两种符号，由配色主题决定显示哪个。
+    const replyText = m.reply ? escapeHtml(m.reply) : '';
+    const quoteWechat = skin === 'wechat' && m.reply ? `<span class="quote-line quote-wechat">${escapeHtml(m.replyName || (m.sender === 'user' ? characterName : '你'))}：${replyText}</span>` : '';
+    const quoteQq = skin === 'qq' && m.reply ? `<span class="quote-line quote-qq"><span class="quote-text">${replyText}</span><span class="quote-mark" aria-hidden="true">〞</span><span class="quote-arrow" aria-hidden="true">${phoneFilledIcon('reply-f')}</span></span>` : '';
     const nameAvatar = group && m.sender !== 'user';
     const hue = Array.from(senderName).reduce((hash, char) => (hash * 31 + char.codePointAt(0)) % 360, 0);
-    return `<div class="message ${m.sender === 'user' ? 'own' : ''}" data-type="${m.type}"><span class="message-avatar${nameAvatar ? ' name-avatar' : ''}" role="img" aria-label="${escapeHtml(nameAvatar ? senderName + '的头像' : m.sender === 'user' ? '我方头像' : '对方头像')}"${nameAvatar ? ` style="background-image:none!important;background-color:hsl(${hue} 35% 85%)!important;color:#292a27!important;display:flex!important;align-items:center;justify-content:center;font:500 15px/1 system-ui"` : ''}>${nameAvatar ? escapeHtml(Array.from(senderName)[0] || '友') : ''}</span><div class="message-content">${nameAvatar ? `<span class="message-sender">${escapeHtml(senderName)}</span>` : ''}<div class="bubble">${inner}</div>${m.time ? `<time class="message-time">${escapeHtml(m.time)}</time>` : ''}</div></div>`;
-  }).join('')}</div><div class="phone-footer" aria-hidden="true"><span class="phone-input"></span>${phoneIcon('plus')}</div><div class="phone-home" aria-hidden="true"></div></div></div>`;
+    // 同组连续消息：cont=与上一条同发送者，tail=与下一条同发送者（气泡衔接角收小用）。
+    const prevSame = (messages[index - 1]?.sender || '') === m.sender && (messages[index - 1]?.group || '') === (m.group || '') && index > 0;
+    const cont = prevSame ? ' cont' : '';
+    const tail = lastOfRun ? '' : ' tail';
+    // 合并消息的头像位置：QQ 与 Guardian 都是"一组只显示一个"，QQ 在组尾、Guardian 在组首，
+    // 其余行用透明占位保持对齐；微信对方每条都带头像、我方不显示头像。
+    const avatarGhost = skin === 'qq' ? !lastOfRun : skin === 'guardian' ? !firstOfRun : false;
+    const avatar = skin === 'wechat' && m.sender === 'user' ? '' : `<span class="message-avatar${nameAvatar ? ' name-avatar' : ''}${avatarGhost ? ' avatar-ghost' : ''}" role="img" aria-label="${escapeHtml(nameAvatar ? senderName + '的头像' : m.sender === 'user' ? '我方头像' : '对方头像')}"${nameAvatar ? ` style="background-image:none!important;background-color:hsl(${hue} 35% 85%)!important;color:#292a27!important;display:flex!important;align-items:center;justify-content:center;font:500 15px/1 system-ui"` : ''}>${nameAvatar ? escapeHtml(Array.from(senderName)[0] || '友') : ''}</span>`;
+    const quoteBelow = quoteWechat || quoteQq;
+    return `${divider}<div class="message ${m.sender === 'user' ? 'own' : ''}${cont}${tail}" data-type="${m.type}">${avatar}<div class="message-content">${nameAvatar ? `<span class="message-sender">${escapeHtml(senderName)}</span>` : ''}<div class="${bubbleCls}">${inner}${inlineTime}</div>${belowTime}${quoteBelow}${receipt}</div></div>`;
+  }).join('')}</div>${footer}<div class="phone-home" aria-hidden="true"></div></div></div>`;
 }
 // @scope 在部分浏览器版本里整块不生效，主题样式会全部丢失。这里改成给每条规则加章节前缀。
 export function scopeChapterCss(css, id) {
@@ -126,7 +220,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
   };
   const names = { character: story.snapshot?.character?.name, persona: story.snapshot?.persona?.name };
   // 混合章节里的一段小手机：沿用原有消息解析与手机外壳，只是嵌入正文流里。
-  const mixedPhone = (text, chapter, n) => {
+  const mixedPhone = (text, chapter, n, layout) => {
     try {
       const messages = resolveMessageStickers(parsePhone(text, names), chapter.stickerSnapshot);
       if (!messages.length) return '<p class="diagnostic">这一段小手机没有可显示的有效消息。</p>';
@@ -135,7 +229,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
         if (!conversations.length || (conversations.at(-1)[0].group || '') !== (message.group || '')) conversations.push([]);
         conversations.at(-1).push(message);
       }
-      return conversations.map(rows => phoneHtml(rows, names.character || '角色', chapter.phoneAppearance, n)).join('');
+      return conversations.map(rows => phoneHtml(rows, names.character || '角色', chapter.phoneAppearance, n, layout, options.charHandle || '')).join('');
     } catch (error) { return `<p class="diagnostic">${escapeHtml(error.message)}</p>`; }
   };
   const body = chapters.map((chapter, index) => {
@@ -150,6 +244,15 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     // 旧主题可能存过十几 MB 的内嵌字体，渲染前先裁掉超大的 @font-face。
     compiled.fonts = trimFonts(compiled.fonts);
     compiled.css = trimFonts(compiled.css);
+    // 小手机皮肤布局：手机章节直接取当前手机主题；混合章节用 options.phoneTheme
+    // 指定的手机主题（正文主题与手机主题独立），把皮肤 CSS 一并注入本章作用域。
+    const skinTheme = mode === 'phone' ? selectedTheme : mode === 'mixed' ? options.phoneTheme || null : null;
+    const phoneLayout = ['guardian', 'wechat', 'qq'].includes(skinTheme?.layout) ? skinTheme.layout : 'classic';
+    let phoneSkinCss = '';
+    if (mode === 'mixed' && options.phoneTheme) {
+      const skinCompiled = compileThemeCss(options.phoneTheme.css || '', options.phoneTheme.tokens?.fontFamily, n + 1000);
+      phoneSkinCss = trimFonts(`${skinCompiled.fonts}\n${skinCompiled.css}`);
+    }
     const vars = `--reader-bg:${t.background || '#F9F8F6'};--reader-ink:${t.color || '#1C1C1C'};--reader-font:${compiled.fontFamily};--reader-size:${t.fontSize || '17px'};--reader-scale:${readScale};--reader-leading:${t.lineHeight || '1.9'};--bubble:${t.bubble || '#fff'};--own-bubble:${t.ownBubble || '#E3E1DB'}`;
     let content;
     // 正文／小手机章节里也可能出现世界书带来的卡片：世界书常用自己的包裹标签（<orange> 等），
@@ -170,7 +273,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
       };
       content = segments.map((segment, order) => {
         if (segment.kind === 'overflow') return dropped();
-        if (segment.kind === 'phone') return `<div class="mixed-phone">${mixedPhone(segment.text, chapter, n)}</div>`;
+        if (segment.kind === 'phone') return `<div class="mixed-phone">${mixedPhone(segment.text, chapter, n, phoneLayout)}</div>`;
         if (segment.kind === 'html') {
           if (chapterRendered >= bookRoom) return dropped();
           const html = sanitizeCardHtml(segment.text, { scripts: cardScripts });
@@ -193,7 +296,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
           if (!conversations.length || (conversations.at(-1)[0].group || '') !== (message.group || '')) conversations.push([]);
           conversations.at(-1).push(message);
         }
-        content = conversations.map(rows => phoneHtml(rows, story.snapshot?.character?.name || '角色', chapter.phoneAppearance, n)).join('');
+        content = conversations.map(rows => phoneHtml(rows, story.snapshot?.character?.name || '角色', chapter.phoneAppearance, n, phoneLayout, options.charHandle || '')).join('');
       }
       catch (error) { content = `<p class="diagnostic">${escapeHtml(error.message)}</p>`; }
     } else {
@@ -220,7 +323,7 @@ export function renderReader(story, theme, chapterIndex = null, themeForChapter 
     const bodyHtml = native && mode !== 'phone'
       ? `<div class="tavern-chat"><div class="mes"><div class="mes_block"><div class="mes_text">${content}</div></div></div></div>`
       : content;
-    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n${scopeChapterCss([compiled.css, native, builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : '', mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : '', '.paper{position:relative}', '.paper{left:auto!important;right:auto!important;margin-left:auto!important;margin-right:auto!important;transform:none!important;float:none!important}', '.tavern-chat,.mes,.mes_block,.mes_text{box-sizing:border-box!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:0!important;padding-right:0!important;left:auto!important;right:auto!important;float:none!important;transform:none!important}', '.paragraph,.prose-title,.chapter h1,.chapter h2,.mes_text{text-indent:0!important;margin-left:0!important;padding-left:0!important}', '.chapter .paragraph,.chapter .prose-title,.chapter .mes_text,.chapter h1,.chapter h2,.chapter .paper .paragraph,.chapter .paper .mes_text{text-indent:0!important;padding-left:0!important;margin-left:0!important;letter-spacing:normal!important}', '.chapter .paper{padding-left:0!important;padding-right:0!important;text-indent:0!important;margin-left:0!important;margin-right:0!important;left:0!important;right:auto!important;transform:none!important}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{padding-left:0!important;padding-right:0!important}', 'html,body{overflow-x:hidden;max-width:100%}', 'main{max-width:100%!important;width:100%!important;margin:0 auto!important}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{box-sizing:border-box!important;width:100%!important;max-width:min(620px,100%)!important;position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;height:auto!important;overflow:hidden!important;pointer-events:auto!important;margin-left:auto!important;margin-right:auto!important}', '.chapter.prose-chapter .paper,.chapter.mixed-chapter .paper{width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-top:0!important}', headerSize ? `.chapter::before{height:${headerSize}!important}` : '', headerSize ? `.chapter{padding-top:calc(${headerSize} + 20px)!important}` : ''].filter(Boolean).join('\n'), n)}</style>${mode !== 'phone' ? `<div class="paper">${heading}${bodyHtml}</div>` : `${heading}${content}`}</section>`;
+    return `<section class="chapter ${mode === 'phone' ? 'phone-chapter' : 'prose-chapter'}${mode === 'mixed' ? ' mixed-chapter' : ''}" data-chapter="${n}" style="${escapeHtml(vars)}"><style>${compiled.fonts}\n${scopeChapterCss([compiled.css, native, phoneSkinCss, builtinProse ? '.prose-chapter{max-width:none!important;width:100%}' : '', mode === 'prose' ? `.prose-chapter,.paragraph{font-size:calc(14px * ${readScale})!important}.prose-title{font-size:calc(26px * ${readScale})!important}` : '', '.paper{position:relative}', '.paper{left:auto!important;right:auto!important;margin-left:auto!important;margin-right:auto!important;transform:none!important;float:none!important}', '.tavern-chat,.mes,.mes_block,.mes_text{box-sizing:border-box!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:0!important;padding-right:0!important;left:auto!important;right:auto!important;float:none!important;transform:none!important}', '.paragraph,.prose-title,.chapter h1,.chapter h2,.mes_text{text-indent:0!important;margin-left:0!important;padding-left:0!important}', '.chapter .paragraph,.chapter .prose-title,.chapter .mes_text,.chapter h1,.chapter h2,.chapter .paper .paragraph,.chapter .paper .mes_text{text-indent:0!important;padding-left:0!important;margin-left:0!important;letter-spacing:normal!important}', '.chapter .paper{padding-left:0!important;padding-right:0!important;text-indent:0!important;margin-left:0!important;margin-right:0!important;left:0!important;right:auto!important;transform:none!important}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{padding-left:0!important;padding-right:0!important}', 'html,body{overflow-x:hidden;max-width:100%}', 'main{max-width:100%!important;width:100%!important;margin:0 auto!important}', '.chapter.prose-chapter,.chapter.phone-chapter,.chapter.mixed-chapter{box-sizing:border-box!important;width:100%!important;max-width:min(620px,100%)!important;position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;height:auto!important;overflow:hidden!important;pointer-events:auto!important;margin-left:auto!important;margin-right:auto!important}', '.chapter.prose-chapter .paper,.chapter.mixed-chapter .paper{width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-top:0!important}', headerSize ? `.chapter::before{height:${headerSize}!important}` : '', headerSize ? `.chapter{padding-top:calc(${headerSize} + 20px)!important}` : ''].filter(Boolean).join('\n'), n)}</style>${mode !== 'phone' ? `<div class="paper">${heading}${bodyHtml}</div>` : `${heading}${content}`}</section>`;
   }).join('');
   // Static prose stays inert; scripted cards get only the trusted resize/error bridge.
   // 酒馆用 @import 载入的网络字体不会自动进入沙箱阅读区，这里把同一批字体样式表再挂一次。

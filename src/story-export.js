@@ -1,7 +1,7 @@
 import { safeName } from './archive.js';
 import { cleanHtml } from './html-work.js';
 import { renderReader } from './reader.js';
-import { resolveChapterTheme } from './themes.js';
+import { resolveChapterTheme, resolveTheme } from './themes.js';
 import { storyPlainText } from './story-copy.js';
 
 // 混合章节也能出 TXT：正文取可读文字、小手机转对话行、卡片只留文字，与「复制·文本」同一份结果。
@@ -12,7 +12,7 @@ export function storyHtmlFile(state, story) {
   if (!story.chapters.length) throw new Error('这篇番外还没有可导出的章节。');
   const content = story.mode === 'html'
     ? cleanHtml(story.chapters[0].content, story.chapters[0].readingRegex, story.snapshot)
-    : renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null, ch => resolveChapterTheme(state, story, ch), null, { bookCap: false });
+    : renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null, ch => resolveChapterTheme(state, story, ch), null, { bookCap: false, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) });
   if (!content.trim()) throw new Error('这篇作品没有可导出的 HTML 内容。');
   return { name: safeName(story.title) + '.html', content, type: 'text/html;charset=utf-8' };
 }
@@ -68,7 +68,7 @@ export async function storyTextFile(state, story, readText = visibleChapterText)
   }
   const issues = [], warnings = [];
   const html = renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null,
-    ch => resolveChapterTheme(state, story, ch), list => warnings.push(...list), { onEmpty: (_issue, chapter) => issues.push(chapter) });
+    ch => resolveChapterTheme(state, story, ch), list => warnings.push(...list), { onEmpty: (_issue, chapter) => issues.push(chapter), phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) });
   if (issues.length) throw new Error(`第 ${issues[0]} 节没有可导出的正文，请先检查阅读内容。`);
   if (warnings.length) throw new Error('正文规则存在错误，请先检查阅读内容后再导出 TXT。');
   if (/<iframe\b[^>]*data-regex-card=/i.test(html)) throw new Error('这篇正文含动态脚本美化，请导出 HTML 以保留完整内容。');
