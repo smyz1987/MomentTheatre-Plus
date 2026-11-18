@@ -104,7 +104,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   const libraryLocation = new LibraryLocation(host.scope);
   let catalog = { characters: [], personas: [], books: [], presets: [] };
   let tab = 'generate', storyId = null, chapterIndex = 0, continuationOpen = false;
-  let category = 'all', tag = '', query = '', skinPreview = 'prose', task = null, editing = false, editText = '';
+  let category = 'all', tag = '', query = '', libraryQuery = '', skinPreview = 'prose', task = null, editing = false, editText = '';
   let scriptTag = '', scriptQuery = '';
   const selections = { stories: { active: false, ids: new Set() }, scripts: { active: false, ids: new Set() } };
   const filterExpanded = { 分类: false, 标签: false }, filterLayouts = new Map();
@@ -407,7 +407,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   function summary(mode, words, themeId) {
     const s = state.settings;
     if (mode === 'html') return el('div', { class: 'properties html-properties' }, `最大回复 ${s.maxTokens} token`, el('span', {}, s.apiMode === 'main' ? '跟随主 API' : `独立 API${s.model ? ` · ${s.model}` : ''}`), el('span', {}, '作品自带样式'));
-    return el('div', { class: 'properties' }, mode === 'phone' ? `目标 ${s.targetMessages} 条消息` : `目标 ${words} 字`, el('span', {}, s.apiMode === 'main' ? '跟随主 API' : `独立 API${s.model ? ` · ${s.model}` : ''}`), el('span', {}, `${modeLabel(mode)} · ${resolveTheme(state, mode, themeId).name}`));
+    return el('div', { class: 'properties' }, mode === 'phone' ? `目标 ${s.targetMessages} 条消息` : `目标 ${words} 字（中文按字·英文按词）`, el('span', {}, s.apiMode === 'main' ? '跟随主 API' : `独立 API${s.model ? ` · ${s.model}` : ''}`), el('span', {}, `${modeLabel(mode)} · ${resolveTheme(state, mode, themeId).name}`));
   }
   function chapterCount(story, chapter) {
     const mode = chapter.mode || story.mode;
@@ -453,7 +453,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       if (chapterMode !== 'html' && chapterIndex === story.chapters.length - 1) {
         try { canTopUp = contentLength(chapter.content, chapterMode) < chapterTarget; } catch { /* Keep malformed partial content editable. */ }
       }
-      page.append(el('div', { class: 'chapter-bar' }, el('div', { class: 'chapter-progress' }, el('span', { class: 'chapter-count muted', 'aria-live': 'polite' }, chapterCount(story, chapter)), chapterMode === 'mixed' ? (() => { const stats = mixedStats(chapter.content); return el('span', { class: 'chapter-mixed-scale muted' }, `正文 ${stats.prose} · 手机 ${stats.phones} · 卡片 ${stats.cards}`); })() : null, canTopUp && !editing ? button('继续补足', () => run(false, true), { class: 'text-button', disabled: Boolean(task) }) : null), el('div', { class: 'chapter-tools' }, story.mode === 'html' ? null : el('div', { class: 'chapter-buttons', 'aria-label': '章节' }, story.chapters.map((ch, i) => button(String(i + 1), () => { if (editing) return notify('请先保存编辑。'); chapterIndex = i; render(); }, { 'aria-pressed': chapterIndex === i, class: chapterIndex === i ? 'selected' : '' }))), expand)));
+      page.append(el('div', { class: 'chapter-bar' }, el('div', { class: 'chapter-progress' }, el('span', { class: 'chapter-count muted', 'aria-live': 'polite', title: chapterMode === 'phone' ? '按有效消息条数统计' : '中文逐字、英文按单词，代码和标签不计' }, chapterCount(story, chapter)), chapterMode === 'mixed' ? (() => { const stats = mixedStats(chapter.content); return el('span', { class: 'chapter-mixed-scale muted' }, `正文 ${stats.prose} · 手机 ${stats.phones} · 卡片 ${stats.cards}`); })() : null, canTopUp && !editing ? button('继续补足', () => run(false, true), { class: 'text-button', disabled: Boolean(task) }) : null), el('div', { class: 'chapter-tools' }, story.mode === 'html' ? null : el('div', { class: 'chapter-buttons', 'aria-label': '章节' }, story.chapters.map((ch, i) => button(String(i + 1), () => { if (editing) return notify('请先保存编辑。'); chapterIndex = i; render(); }, { 'aria-pressed': chapterIndex === i, class: chapterIndex === i ? 'selected' : '' }))), expand)));
       if (editing) {
         const phoneChapter = (story.chapters[chapterIndex].mode || story.mode) === 'phone';
         const titleInput = el('input', { value: state.editorDraft?.title ?? story.title, maxlength: 120, onInput: e => { state.editorDraft.title = e.target.value; scheduleSave(); } });
@@ -1246,6 +1246,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     // 酒馆主题库：直接取用酒馆「UI 主题」里已保存的美化，正文与小手机可以各选一套，不必和酒馆当前主题相同。
     let libraryBusy = false;
     const libraryStatus = el('small', { class: 'muted' }, tavernLibrary ? `已读取 ${tavernLibrary.length} 套酒馆主题，选择后只影响番外。` : '还没有读取。读取只取配色，不改动酒馆当前主题。');
+    const libraryCount = el('small', { class: 'muted', 'aria-live': 'polite' }, tavernLibrary ? `共 ${tavernLibrary.length} 套` : '');
+    const librarySearch = el('input', { type: 'search', value: libraryQuery, placeholder: '按名称筛选，例如 樱、蓝、暗', 'aria-label': '搜索酒馆主题', disabled: !tavernLibrary, onInput: e => { libraryQuery = e.target.value; drawLibrary(); } });
     const libraryRows = el('div', { class: 'library-theme-rows' });
     // 主题 id 只允许 custom- 加小写字母数字，用名字的短哈希保证同一套酒馆主题每次拿到同一个 id。
     const libId = (mode, name) => {
@@ -1287,13 +1289,21 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     });
     const drawLibrary = () => {
       if (!tavernLibrary) return;
+      const keyword = String(libraryQuery || '').trim().toLowerCase();
+      const matches = keyword ? tavernLibrary.filter(item => String(item.name || '').toLowerCase().includes(keyword)) : tavernLibrary;
+      libraryCount.textContent = keyword ? `${matches.length}/${tavernLibrary.length} 套匹配` : `共 ${tavernLibrary.length} 套`;
       // 只给正文提供酒馆主题库：小手机不走酒馆美化这条路，样式由内置/导入的手机主题负责。
       libraryRows.replaceChildren(...['prose'].map(mode => {
         const label = mode === 'phone' ? '小手机用它' : '正文用它';
         const selected = currentLibraryName(mode);
+        const options = [];
+        // 搜索时保留当前选中项，避免下拉框看起来像“没选中”。
+        if (selected && !matches.some(item => item.name === selected)) options.push(el('option', { value: selected, selected: true }, `当前：${selected}`));
+        options.push(...matches.map(item => el('option', { value: item.name, selected: item.name === selected }, item.name)));
+        if (!matches.length) options.push(el('option', { value: '', disabled: true }, '没有匹配的主题'));
         const select = el('select', { 'aria-label': `从酒馆主题库为${mode === 'phone' ? '小手机' : '正文'}选一套`, onChange: e => { const value = e.target.value; if (value) applyLibraryTheme(mode, value).catch(() => {}); } },
-          el('option', { value: '' }, selected ? `当前：${selected}` : '选择酒馆主题库里的美化'),
-          ...tavernLibrary.map(item => el('option', { value: item.name, selected: item.name === selected }, item.name)));
+          el('option', { value: '' }, selected ? '选择其他酒馆主题' : keyword ? `从 ${matches.length} 套匹配结果中选择` : '选择酒馆主题库里的美化'),
+          ...options);
         return el('div', { class: 'library-theme-row' }, el('span', { class: 'field-label' }, label), select);
       }));
     };
@@ -1303,6 +1313,8 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       try {
         tavernLibrary = await host.tavernThemes({ refresh: true });
         libraryStatus.textContent = tavernLibrary.length ? `已读取 ${tavernLibrary.length} 套酒馆主题，选择后只影响番外。` : '酒馆主题库里还没有保存过主题。';
+        librarySearch.disabled = !tavernLibrary.length;
+        libraryCount.textContent = `共 ${tavernLibrary.length} 套`;
         drawLibrary();
       } finally { libraryBusy = false; }
     });
@@ -1310,6 +1322,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
       el('p', { class: 'muted' }, '如果番外想用的美化和你酒馆现在这套不一样，就在这里从酒馆「UI 主题」里另选一套。'),
       el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: state.settings.libraryCss !== false, onChange: e => { state.settings.libraryCss = e.target.checked; scheduleSave(); render(); } }), '连装饰一起套上'),
       el('p', { class: 'muted' }, '勾上后字体、底纹、边框、装饰图都按这套美化来；取消只留配色。'),
+      el('div', { class: 'field library-theme-search' }, el('span', { class: 'field-label' }, '搜索主题'), librarySearch, libraryCount),
       el('div', { class: 'actions' }, button('读取主题库', loadLibrary, { class: 'outline' }), libraryStatus), libraryRows);
     if (tavernLibrary) drawLibrary();
     return el('section', { class: 'page' }, el('div', { class: 'page-heading theme-heading' }, el('h1', {}, '阅读美化'),
@@ -1837,7 +1850,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         el('p', { class: 'muted' }, '「卡片脚本」默认关：开启后混合模式里模型写的脚本会在独立沙箱里运行，只能改自己那张卡片，读不到酒馆页面；但写出死循环会占满渲染线程，整个标签页会卡住且无法中途停止。'),
         el('div', { class: 'actions' }, button('重新观看功能介绍', () => startTourGuide(), { class: 'text-button' }))),
       el('section', { class: 'settings-group' }, el('h2', {}, '生成参数'),
-        el('div', { class: 'parameter-pair' }, settingNumber('目标正文字数', 'words', 100, 20000), settingNumber('目标消息条数', 'targetMessages', 1, 1000)),
+        el('div', { class: 'parameter-pair' }, settingNumber('目标正文字数', 'words', 100, 20000, '中文逐字、英文按单词，代码和标签不计'), settingNumber('目标消息条数', 'targetMessages', 1, 1000)),
         el('div', { class: 'parameter-pair top-up-options' }, el('label', { class: 'top-up-toggle' }, el('input', { type: 'checkbox', checked: s.autoTopUp !== false, onChange: e => { update('autoTopUp', e.target.checked); refreshTopUpStepper(); } }), el('span', {}, '开启自动补足字数')), el('div', { class: 'top-up-setting' }, el('span', {}, '自动补足'), topUpStepper, el('span', {}, '次'))),
         el('div', { class: 'parameter-pair reply-parameters' }, settingNumber('最大回复token', 'maxTokens', 128, 200000), el('label', { class: 'stream-setting' }, el('input', { type: 'checkbox', checked: s.stream, onChange: e => update('stream', e.target.checked) }), el('span', {}, '流式传输')))),
       el('section', { class: 'settings-group' }, el('h2', {}, 'API'), dropdownField('生成连接', apiChoice), apiFields, apiActions, connectionStatus),

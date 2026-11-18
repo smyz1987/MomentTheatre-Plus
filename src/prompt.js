@@ -156,7 +156,7 @@ export function buildMessages({ snapshot, prompt, mode, chapters = [], instructi
     ? phonePrompt(stickers, allowRetract)
     : mode === 'mixed' ? mixedPrompt(stickers)
     : '输出可直接阅读的正文，用自然段落，不输出章节编号、创作说明或 HTML。发言使用成对引号；按文意可使用 **加粗**、*斜体*、~~删除线~~，无需刻意凑齐格式。';
-  const target = mode === 'phone' ? `至少 ${targetMessages} 条消息（按有效消息行计数，不按字数）` : `至少 ${words} 字`;
+  const target = mode === 'phone' ? `至少 ${targetMessages} 条消息（按有效消息行计数，不按字数）` : `至少 ${words} 字（中文字逐字计，英文按单词计；HTML 标签、CSS、脚本和代码不计入）`;
   messages.push({ role: 'user', content: mode === 'html' ? format : chapters.length
     ? `根据以上番外续写第 ${chapters.length + 1} 节，不重复上文。本节${target}。${continuation ? `本次要求：${continuation}` : '请自然接续。'}\n${format}`
     : `现在生成第一节，${target}。\n${format}` });

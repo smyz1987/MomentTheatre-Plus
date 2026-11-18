@@ -5,13 +5,14 @@ import { parsePhone } from './reader.js';
 import { buildMessages } from './prompt.js';
 import { summaryPlan, summaryInstruction, splitSummaryReply, summarySettings, summaryStarted } from './summary-protocol.js';
 import { mixedWordCount } from './mixed-format.js';
+import { countReadableWords } from './word-count.js';
 
-export const countWords = text => Array.from(String(text).replace(/[^\p{L}\p{N}]/gu, '')).length;
+export const countWords = countReadableWords;
 export function readableText(content, mode, names) {
   if (mode !== 'phone') return content;
   return parsePhone(content, names).map(m => [m.group ? `群聊：${m.group}，${m.sender === 'user' ? '我方' : m.speaker || '系统'}` : '', m.type, m.text, m.title, m.description, m.address, m.source, m.sticker, m.amount, m.status].filter(Boolean).join(' ')).join('\n');
 }
-export const contentLength = (content, mode, names) => !content?.trim() ? 0 : mode === 'html' ? content.length : mode === 'phone' ? parsePhone(content, names).length : mode === 'mixed' ? mixedWordCount(content) : countWords(content);
+export const contentLength = (content, mode, names) => !content?.trim() ? 0 : mode === 'html' ? countReadableWords(content) : mode === 'phone' ? parsePhone(content, names).length : mode === 'mixed' ? mixedWordCount(content) : countWords(content);
 const checkInput = messages => {
   const size = messages.reduce((n,m) => n + m.content.length, 0);
   if (size > 1000000) throw new Error('请求输入超过一百万字符的保护上限。');
@@ -27,7 +28,7 @@ export async function generateChapter({ host, settings, snapshot, story, prompt,
     signal?.throwIfAborted();
     if (!sourceContent.trim()) throw Object.assign(new Error('HTML 回复为空。'), { code: 'EMPTY_RESPONSE' });
     const issue = htmlIssue(sourceContent); onChunk?.(content);
-    return { content:content||sourceContent, sourceContent, title: extractTitle(content, 'html').title, complete: !issue, htmlIssue: issue, actual: content.length, unit: '字符', rounds: 0, short: false };
+    return { content:content||sourceContent, sourceContent, title: extractTitle(content, 'html').title, complete: !issue, htmlIssue: issue, actual: countReadableWords(content), unit: '字', rounds: 0, short: false };
   }
   const target = mode === 'phone' ? settings.targetMessages || 50 : settings.words;
   const unit = mode === 'phone' ? '条' : '字';

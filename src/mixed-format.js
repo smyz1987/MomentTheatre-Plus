@@ -1,5 +1,6 @@
 // 混合番外：正文、小手机与网页卡片在同一节内任意穿插。
 // 这一段只做纯文本分节，不接触 DOM，渲染仍交给原有的正文／小手机／卡片流程。
+import { countReadableWords } from './word-count.js';
 
 // 三个正则都用「从上次位置继续扫」的写法，整段只前后各扫一遍；
 // 早期版本每次切片再扫，遇到大量标签时会变成平方级耗时（几百 KB 就能卡住主线程一秒以上）。
@@ -36,7 +37,6 @@ export function normalizeCustomCards(content, passes = 2) {
 // blocks 是单节上限；bookBlocks 是整篇一起渲染时的总量上限，防止几十节各自满额堆出上百个 iframe。
 export const MIXED_CAPS = { blocks: 12, blockChars: 60000, totalHtmlChars: 240000, bookBlocks: 60 };
 
-const countText = text => Array.from(String(text || '').replace(/[^\p{L}\p{N}]/gu, '')).length;
 const trimBlock = text => String(text || '').replace(/^\s*\n/, '').replace(/\n\s*$/, '');
 
 // 返回按出现顺序排列的分段：[{ kind: 'prose' | 'phone' | 'html', text, closed }]
@@ -112,7 +112,7 @@ export const hasMixedBlocks = content => parseMixed(content).some(segment => seg
 export function mixedWordCount(content) {
   return parseMixed(content).reduce((total, segment) => {
     if (segment.kind === 'html') return total;
-    return total + countText(segment.kind === 'phone' ? segment.text.replace(/^\s*\[[^\]]*\]\s*/gm, '') : segment.text);
+    return total + countReadableWords(segment.kind === 'phone' ? segment.text.replace(/^\s*\[[^\]]*\]\s*/gm, '') : segment.text);
   }, 0);
 }
 
