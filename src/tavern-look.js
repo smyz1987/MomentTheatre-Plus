@@ -292,11 +292,12 @@ function collectCustomProps(css) {
   const vars = new Map();
   const text = String(css || '');
   // 值里可能带 url(...) 或 \A 这类转义换行，先整体吃掉 url(...) 与转义序列，再按分号切分。
-  const rule = /--([A-Za-z0-9_-]+)\s*:\s*((?:url\(\s*[^)]*\)|\\.|[^;{}<>\\])+)/gi;
+  // 放开 <>：单变量校验（parseThemeCss）会兜底剔除坏值，避免误杀长字体栈等合法定义。
+  const rule = /--([A-Za-z0-9_-]+)\s*:\s*((?:url\(\s*[^)]*\)|\\.|[^;{}\\])+)/gi;
   let match;
   while ((match = rule.exec(text))) {
     let value = match[2].replace(/\/\*[\s\S]*?\*\//g, '').trim();
-    if (!value || value.length > 800 || /expression\s*\(/i.test(value)) continue;
+    if (!value || value.length > 4000 || /expression\s*\(/i.test(value)) continue;
     // 字符串引号不配对的变量不能挂出去，否则会把整条样式表拖进字符串里失效。
     const dq = (value.match(/"/g) || []).length;
     const sq = (value.match(/'/g) || []).length;
@@ -611,6 +612,24 @@ export function convertTavernTheme(raw, mode = 'prose', { withCss = false } = {}
     warningPush(warnings, converted.warnings);
     css = converted.css;
   }
+  // 酒馆美化常引用酒馆内置变量（--SmartTheme* 等），阅读区没有这些变量；把主题 JSON 里的
+  // 对应值定义到章节根上，让这些 var() 引用在阅读区继续生效。
+  const underline = parseColor(raw.underline_text_color);
+  const stMap = [
+    ['--SmartThemeBodyColor', ink ? cssColor(flatten(ink, paper)) : ''],
+    ['--SmartThemeQuoteColor', quote ? cssColor(flatten(quote, paper)) : ''],
+    ['--SmartThemeEmColor', italic ? cssColor(flatten(italic, paper)) : ''],
+    ['--SmartThemeBlurTintColor', tint ? cssColor(tint) : ''],
+    ['--SmartThemeChatTintColor', chatTint ? cssColor(chatTint) : ''],
+    ['--SmartThemeUserMesBlurTintColor', own && paper ? cssColor(flatten(own, paper)) : ''],
+    ['--SmartThemeBotMesBlurTintColor', other && paper ? cssColor(flatten(other, paper)) : ''],
+    ['--SmartThemeBorderColor', (() => { const v = parseColor(raw.border_color); return v ? cssColor(flatten(v, paper)) : ''; })()],
+    ['--SmartThemeUnderlineColor', underline ? cssColor(flatten(underline, paper)) : ''],
+    ['--SmartThemeShadowColor', (() => { const v = parseColor(raw.shadow_color); return v ? cssColor(flatten(v, paper)) : ''; })()],
+    ['--mainFontSize', Number.isFinite(scale) ? String(Math.round(15 * scale)) + 'px' : ''],
+    ['--fontScale', Number.isFinite(scale) ? String(scale) : ''],
+  ].filter(([, v]) => v);
+  if (stMap.length) css = `${mode === 'phone' ? '.phone-chapter' : '.prose-chapter'}{${stMap.map(([k, v]) => `${k}:${v}`).join(';')}}${css}`;
   if (accent.length) css = `${mode === 'phone' ? '.phone-chapter' : '.prose-chapter'}{${accent.join(';')}}${css}`;
   if (css && !verify(css)) {
     css = accent.length ? `${mode === 'phone' ? '.phone-chapter' : '.prose-chapter'}{${accent.join(';')}}` : '';
