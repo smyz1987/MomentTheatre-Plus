@@ -222,6 +222,18 @@ export class TavernHost {
     const books = [...new Set([character.data?.extensions?.world, ...additional].filter(name => typeof name === 'string' && available.has(name)))];
     return { key, name:character.name || '', books, rules:normalizeRegexRules(character.data?.extensions?.regex_scripts) };
   }
+  // 小手机“使用酒馆头像”：按角色名匹配角色头像，并取当前人设头像；均为酒馆自带缩略图端点。
+  tavernAvatarUrls(characterName) {
+    const c = this.getContext();
+    if (!c || !Array.isArray(c.characters)) return { char: '', user: '' };
+    const byName = characterName ? c.characters.find(ch => (ch.name || '') === characterName) : null;
+    const ch = byName || (Number.isInteger(c.characterId) ? c.characters[c.characterId] : null);
+    const pu = c.powerUserSettings || {};
+    const personaName = pu.default_persona || c.name1 || '';
+    const personaFile = pu.personas ? pu.personas[personaName] : '';
+    const url = (type, file) => (typeof file === 'string' && file ? `/thumbnail?type=${type}&file=${encodeURIComponent(file)}` : '');
+    return { char: url('avatar', ch && ch.avatar), user: url('persona', personaFile) };
+  }
   onCharacterChange(callback) {
     const c = this.getContext();
     const names = ['CHAT_CHANGED','CHARACTER_EDITED','WORLDINFO_SETTINGS_UPDATED'].map(key => c.eventTypes[key]).filter(Boolean);

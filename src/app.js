@@ -2,7 +2,7 @@ import { readStickerFiles, localStickerUrl } from './sticker-files.js';
 import { readStickerLinks } from './sticker-links.js';
 import { tagNames, catalogSettings } from './tag-catalog.js';
 import { tagPatch, categoryPatch, deleteCollectionPatch } from './library-collections.js';
-import { phoneAppearance, avatarUrl, avatarFile, checkAvatarImage } from './phone-appearance.js';
+import { phoneAppearance, avatarUrl, backgroundUrl, avatarFile, backgroundFile, checkAvatarImage } from './phone-appearance.js';
 import { libraryBackup, restoreLibraryBackup } from './library-backup.js';
 import { limitDraftStories } from './draft-retention.js';
 import { readerFullscreen, readingIcon } from './reader-fullscreen.js';
@@ -361,6 +361,10 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     for (const chapter of story.chapters) chapter.readingRegex = clone(rules);
     story.snapshot.htmlFiltersCaptured = true;
   }
+  // 小手机渲染的公共外观选项：设置里的头像/背景/磨砂 + 酒馆头像直链（按快照角色名匹配）。
+  function phoneRenderOptions(story) {
+    return { phoneAppearance: phoneAppearance(state.settings.phoneAppearance), tavernAvatars: host.tavernAvatarUrls(story?.snapshot?.character?.name) };
+  }
   function makeReader(story, index = null, previewThemeId = null, { instant = false } = {}) {
     const mode = story.chapters[index]?.mode || story.mode;
     if (mode === 'html') {
@@ -372,7 +376,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const issues = [];
     const html = renderReader(story, themeForChapter(story.chapters[index ?? 0] || {}), index, themeForChapter, warnings => {
       for (const warning of warnings) if (!readingWarnings.has(warning)) { readingWarnings.add(warning); report(new Error(warning), '正文正则'); }
-    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true, readScale: state.settings.readScale, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) });
+    }, { emptyNotice: false, onEmpty: (issue, number) => issues.push({ ...issue, chapter: number }), followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true, readScale: state.settings.readScale, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme), ...phoneRenderOptions(story) });
     const token = readerToken(html);
     const frame = el('iframe', { class: `reader-frame ${mode === 'phone' ? 'phone-frame' : 'prose-frame'}${mode === 'mixed' ? ' mixed-frame' : ''}`, title: story.title + '阅读区', sandbox: token ? 'allow-scripts allow-same-origin' : '', referrerpolicy: 'no-referrer' });
     if (token) readerTokens.set(frame, token);
@@ -823,7 +827,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const exportFile = format => action(async () => {
       error.hidden = true; pop.inert = true;
       try {
-        const file = format === 'txt' ? await storyTextFile(state, snapshot) : storyHtmlFile(state, snapshot);
+        const file = format === 'txt' ? await storyTextFile(state, snapshot, undefined, phoneRenderOptions(snapshot)) : storyHtmlFile(state, snapshot, phoneRenderOptions(snapshot));
         download(file.content, file.name, file.type); pop.close(); notify('整篇番外已导出。');
       } catch (e) { error.textContent = e.message; error.hidden = false; }
       finally { pop.inert = false; }
@@ -1168,10 +1172,25 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     } });
     const perfCheck = el('input', { type: 'checkbox', checked: values.perf === true, onChange: e => { values.perf = e.target.checked; } });
     const perfField = el('label', { class: 'field-label', style: 'display:flex;align-items:center;gap:8px;font-weight:normal' }, perfCheck, '低性能模式（关闭磨砂模糊，核显机器更流畅）');
-    const bgField = el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '小手机背景'),
+    const tavernBtn = button('酒馆头像：开', () => {
+      values.useTavernAvatar = values.useTavernAvatar === false;
+      tavernBtn.textContent = values.useTavernAvatar === false ? '酒馆头像：关' : '酒馆头像：开';
+    }, { class: 'text-button', 'aria-label': '使用酒馆头像' });
+    const bgImg = el('img', { alt: '小手机背景预览', referrerpolicy: 'no-referrer', src: values.background, style: 'width:100%;max-height:120px;object-fit:cover;border-radius:8px;display:' + (values.background ? 'block' : 'none') });
+    const bgPaint = value => { bgImg.src = backgroundUrl(value) || ''; bgImg.style.display = backgroundUrl(value) ? 'block' : 'none'; };
+    const bgUpload = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true, onChange: async e => {
+      const file = e.target.files?.[0]; if (!file) return;
+      loading++; error.hidden = true;
+      try {
+        const url = await backgroundFile(file);
+        values.background = url; bgLink.value = ''; bgLink.placeholder = '已选择本地图片，也可改填图片直链'; bgPaint(url);
+      } catch (err) { error.hidden = false; error.textContent = err.message; }
+      finally { loading--; bgUpload.value = ''; }
+    } });
+    const bgField = el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '小手机背景'), bgImg,
       label('背景图直链', bgLink),
-      el('div', { class: 'actions' }, button('恢复默认', () => { values.background = ''; bgLink.value = ''; bgLink.placeholder = 'https://…（竖屏图效果最佳）'; })));
-    pop = popup('修改头像与背景', el('div', {}, el('div', { class: 'avatar-fields' }, fields, bgField), el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '磨砂强度（梦境白）'), el('div', { style: 'display:flex;align-items:center;gap:10px' }, frostRange, frostVal)), perfField, el('small', { class: 'muted' }, '本地图片会缩小为静态头像，保留透明背景；背景图建议使用竖屏直链，三种皮肤（梦境白／星空夜／深海蓝）会以磨砂形式透出。'), error), [button('取消', () => pop.close()), button('确定', () => action(async () => {
+      el('div', { class: 'actions' }, button('本地上传', () => bgUpload.click(), { 'aria-label': '本地上传小手机背景' }), button('恢复默认', () => { values.background = ''; bgLink.value = ''; bgLink.placeholder = 'https://…（竖屏图效果最佳）'; bgPaint(''); })), bgUpload);
+    pop = popup('修改头像与背景', el('div', {}, el('div', { class: 'avatar-fields' }, fields, bgField), el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '头像来源'), tavernBtn), el('div', { class: 'avatar-field' }, el('span', { class: 'field-label' }, '磨砂强度（梦境白）'), el('div', { style: 'display:flex;align-items:center;gap:10px' }, frostRange, frostVal)), perfField, el('small', { class: 'muted' }, '本地图片会缩小为静态头像，保留透明背景；背景图建议使用竖屏直链，三种皮肤（梦境白／星空夜／深海蓝）会以磨砂形式透出。'), error), [button('取消', () => pop.close()), button('确定', () => action(async () => {
       pop.inert = true; error.hidden = true;
       try {
         if (loading) throw new Error('图片仍在读取，请稍后确认。');
@@ -1182,7 +1201,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         if (values.background && !avatarUrl(values.background)) throw new Error('背景图请使用 HTTP(S) 图片直链。');
         values.background = avatarUrl(values.background);
         await Promise.all([checkAvatarImage(values.userAvatar), checkAvatarImage(values.charAvatar), checkAvatarImage(values.background)]);
-        await savePhoneAppearance({ ...phoneAppearance(state.settings.phoneAppearance), userAvatar: values.userAvatar, charAvatar: values.charAvatar, background: values.background, frost: values.frost || '', perf: values.perf === true });
+        await savePhoneAppearance({ ...phoneAppearance(state.settings.phoneAppearance), userAvatar: values.userAvatar, charAvatar: values.charAvatar, background: values.background, frost: values.frost || '', perf: values.perf === true, useTavernAvatar: values.useTavernAvatar !== false });
         pop.close(); refresh();
       } catch (e) { error.hidden = false; error.textContent = e.message; }
       finally { pop.inert = false; }
@@ -1882,7 +1901,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     const choices = [...state.categories, { id: 'uncategorized', name: '未分类' }], selected = new Set(choices.map(c => c.id));
     let pop; pop = popup('按分类导出', el('div', {}, el('p', {}, 'ZIP 解压后按分类展示，同篇在多个分类下各保留一份。阅读文件不展示标签。'), el('div', { class: 'choice-list' }, choices.map(c => el('label', { class: 'check-row' }, el('input', { type: 'checkbox', checked: true, onChange: e => e.target.checked ? selected.add(c.id) : selected.delete(c.id) }), c.name))), el('small', {}, '导出 HTML 自带阅读样式；外部图片仍需网络。本功能不是完整备份。')), [button('取消', () => pop.close()), button('导出 ZIP', () => action(async () => {
       if (!selected.size) throw new Error('请至少选择一个分类。');
-      download(makeZip(categoryFiles(state, [...selected])), `瞬息-分类导出-${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip'); pop.close(); notify('分类导出已开始下载。');
+      download(makeZip(categoryFiles(state, [...selected], story => phoneRenderOptions(story))), `瞬息-分类导出-${new Date().toISOString().slice(0, 10)}.zip`, 'application/zip'); pop.close(); notify('分类导出已开始下载。');
     }), { class: 'primary' })]);
   }
   function placeLauncher() {

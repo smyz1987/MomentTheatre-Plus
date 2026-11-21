@@ -8,11 +8,11 @@ import { storyPlainText } from './story-copy.js';
 export const canExportText = story => story.mode !== 'html' && story.chapters.length > 0 &&
   story.chapters.every(ch => ['prose', 'mixed'].includes(ch.mode || story.mode));
 
-export function storyHtmlFile(state, story) {
+export function storyHtmlFile(state, story, extra = {}) {
   if (!story.chapters.length) throw new Error('这篇番外还没有可导出的章节。');
   const content = story.mode === 'html'
     ? cleanHtml(story.chapters[0].content, story.chapters[0].readingRegex, story.snapshot)
-    : renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null, ch => resolveChapterTheme(state, story, ch), null, { bookCap: false, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) });
+    : renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null, ch => resolveChapterTheme(state, story, ch), null, { bookCap: false, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme), ...extra });
   if (!content.trim()) throw new Error('这篇作品没有可导出的 HTML 内容。');
   return { name: safeName(story.title) + '.html', content, type: 'text/html;charset=utf-8' };
 }
@@ -58,7 +58,7 @@ export function visibleChapterText(html, doc = globalThis.document) {
   });
 }
 
-export async function storyTextFile(state, story, readText = visibleChapterText) {
+export async function storyTextFile(state, story, readText = visibleChapterText, extra = {}) {
   if (!canExportText(story)) throw new Error('TXT 仅支持正文或混合章节；纯小手机、HTML 作品请导出 HTML。');
   // 混合章节不经过 DOM 取字，直接用与复制相同的纯文本结果，避免卡片里的样式和脚本混进 TXT。
   if (story.chapters.some(ch => (ch.mode || story.mode) === 'mixed')) {
@@ -68,7 +68,7 @@ export async function storyTextFile(state, story, readText = visibleChapterText)
   }
   const issues = [], warnings = [];
   const html = renderReader(story, resolveChapterTheme(state, story, story.chapters[0]), null,
-    ch => resolveChapterTheme(state, story, ch), list => warnings.push(...list), { onEmpty: (_issue, chapter) => issues.push(chapter), phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) });
+    ch => resolveChapterTheme(state, story, ch), list => warnings.push(...list), { onEmpty: (_issue, chapter) => issues.push(chapter), phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme), ...extra });
   if (issues.length) throw new Error(`第 ${issues[0]} 节没有可导出的正文，请先检查阅读内容。`);
   if (warnings.length) throw new Error('正文规则存在错误，请先检查阅读内容后再导出 TXT。');
   if (/<iframe\b[^>]*data-regex-card=/i.test(html)) throw new Error('这篇正文含动态脚本美化，请导出 HTML 以保留完整内容。');

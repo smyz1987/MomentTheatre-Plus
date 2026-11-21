@@ -2,12 +2,12 @@ import { USER_AVATAR, CHAR_AVATAR } from './avatar-data.js';
 // Shared by the sandboxed reader, theme preview, and exported reading files.
 export const PHONE_CSS = `
 html{color-scheme:light}
-.phone-group .message-sender{font:11px/1.5 system-ui;opacity:.65;margin:0 0 4px;max-width:100%;overflow-wrap:anywhere}.phone-group .group-event{text-align:center;font-size:12px;opacity:.6;margin:14px 0}.phone-group .group-event .call-record{justify-content:center}.phone+.phone{margin-top:20px}
+.phone-group .message-sender{font:11px/1.5 var(--reader-font, system-ui);opacity:.65;margin:0 0 4px;max-width:100%;overflow-wrap:anywhere}.phone-group .group-event{text-align:center;font-size:12px;opacity:.6;margin:14px 0}.phone-group .group-event .call-record{justify-content:center}.phone+.phone{margin-top:20px}
 body.phone-reader,.phone-chapter{background:transparent!important}
 .phone{--user-avatar:url("${USER_AVATAR}");--char-avatar:url("${CHAR_AVATAR}");--avatar-size:32px;--message-gap:8px}
 .message{flex-direction:row;align-items:flex-start;gap:var(--message-gap);margin:18px 0}.message.own{flex-direction:row-reverse;align-items:flex-start}
 .message-avatar{display:block;width:var(--avatar-size);height:var(--avatar-size);flex:0 0 var(--avatar-size);border-radius:50%;background:#8882 var(--char-avatar) center/cover no-repeat}.own .message-avatar{background-image:var(--user-avatar)}.message-avatar.avatar-ghost{visibility:hidden}
-.quote-line{display:block;font:12px/1.6 system-ui,sans-serif;opacity:.72;margin:3px 2px;overflow-wrap:anywhere}
+.quote-line{display:block;font:12px/1.6 var(--reader-font, system-ui),sans-serif;opacity:.72;margin:3px 2px;overflow-wrap:anywhere}
 .quote-wechat{border-left:3px solid currentColor;padding-left:6px}
 
 .foreign-dash{display:block;border-top:1px dashed #b5b5b5;margin:9px 0 7px;height:0}
@@ -18,7 +18,7 @@ body.phone-reader,.phone-chapter{background:transparent!important}
 .footer-voice .phone-icon{width:18px;height:18px}
 .footer-thumb{display:none;align-items:center}
 .message-content{max-width:calc(100% - 2 * (var(--avatar-size) + var(--message-gap)));min-width:0;display:flex;flex-direction:column;align-items:flex-start}.own .message-content{align-items:flex-end}.bubble{max-width:100%;min-width:0}
-.message-time{display:block;font:10px/1.5 system-ui,sans-serif;opacity:.45;margin-top:4px}
+.message-time{display:block;font:10px/1.5 var(--reader-font, system-ui),sans-serif;opacity:.45;margin-top:4px}
 .phone svg{display:block;width:22px;height:22px;flex-shrink:0}
 .phone-contact{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .phone-battery{display:flex;align-items:center;height:18px}

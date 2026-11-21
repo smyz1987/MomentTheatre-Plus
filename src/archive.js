@@ -36,14 +36,14 @@ function distinctName(value, used) {
   while (used.has(result.toLocaleLowerCase())) result = `${base} (${index++})`;
   used.add(result.toLocaleLowerCase()); return result;
 }
-export function categoryFiles(state, selected = null) {
+export function categoryFiles(state, selected = null, extra = {}) {
   const categories = [...state.categories, { id: 'uncategorized', name: '未分类' }].filter(c => selected === null || selected.includes(c.id));
   const directories = new Set(), files = [];
   for (const category of categories) {
     const folder = distinctName(category.name, directories), names = new Set();
     const stories = state.stories.filter(s => s.saved && (category.id === 'uncategorized' ? !s.categoryIds.length : s.categoryIds.includes(category.id)));
     if (!stories.length) files.push({ path: `瞬息番外导出/${folder}/`, content: '' });
-    for (const story of stories) files.push({ path: `瞬息番外导出/${folder}/${distinctName(story.title, names)}.html`, content: story.mode === 'html' ? cleanHtml(story.chapters[0]?.content || '', story.chapters[0]?.readingRegex, story.snapshot) : renderReader(story, resolveChapterTheme(state, story, story.chapters[0] || {}), null, ch => resolveChapterTheme(state, story, ch), null, { phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme) }) });
+    for (const story of stories) files.push({ path: `瞬息番外导出/${folder}/${distinctName(story.title, names)}.html`, content: story.mode === 'html' ? cleanHtml(story.chapters[0]?.content || '', story.chapters[0]?.readingRegex, story.snapshot) : renderReader(story, resolveChapterTheme(state, story, story.chapters[0] || {}), null, ch => resolveChapterTheme(state, story, ch), null, { phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme), ...extra }) });
   }
   return files;
 }
