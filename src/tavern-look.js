@@ -528,7 +528,13 @@ export function convertTavernCss(css, limit = 28000) {
     result += '.paper{position:relative;z-index:1;background:color-mix(in srgb,var(--reader-bg) 90%,transparent);backdrop-filter:blur(2px)}';
   }
   // 变量定义挂在 .chapter 上，正文与小手机章节共用同一套类名，装饰里的 var() 才拿得到值。
-  const varBlock = vars.size ? `.chapter{position:relative;${[...vars].map(([key, value]) => `${key}:${value}`).join(';')}}` : '';
+  // 个别变量值（非 base64 的 svg data URI 等）通不过主题校验；按单个变量校验，坏变量丢弃，
+  // 避免一个坏变量把整套变量定义全部带崩（晨计主题的 5 个 toast 图标变量曾让 82 个变量全部失效）。
+  const okVars = new Map();
+  for (const [key, value] of vars) {
+    try { parseThemeCss(`.chapter{${key}:${value}}`); okVars.set(key, value); } catch { /* 单个坏变量丢弃 */ }
+  }
+  const varBlock = okVars.size ? `.chapter{position:relative;${[...okVars].map(([key, value]) => `${key}:${value}`).join(';')}}` : '';
   if (varBlock) result = (dropInvalidRules(varBlock) ? varBlock : '') + result;
   if (result.length > limit && varBlock.length <= limit - 60) {
     const cut = result.lastIndexOf('}', limit);
