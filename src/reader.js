@@ -192,6 +192,8 @@ function phoneHtml(messages, characterName, appearance, chapterNumber, layout = 
     // 引用回复：微信是「丨 名字：内容」竖线引用、QQ 是弯箭头小字，两种皮肤都放在
     // 消息下方（对照示意图）；QQ 引用行同时携带箭头与「〞」两种符号，由配色主题决定显示哪个。
     const replyText = m.reply ? escapeHtml(m.reply) : '';
+    // 经典皮肤（无皮肤）的引用行：朴素「名字：内容」灰字。
+    const quoteClassic = !skin && m.reply ? `<span class="quote-line">${escapeHtml(m.replyName || (m.sender === 'user' ? characterName : '你'))}：${replyText}</span>` : '';
     const quoteWechat = skin === 'wechat' && m.reply ? `<span class="quote-line quote-wechat">${escapeHtml(m.replyName || (m.sender === 'user' ? characterName : '你'))}：${replyText}</span>` : '';
     const quoteQq = skin === 'qq' && m.reply ? `<span class="quote-line quote-qq"><span class="quote-text">${replyText}</span><span class="quote-mark" aria-hidden="true">〞</span><span class="quote-arrow" aria-hidden="true">${phoneFilledIcon('reply-f')}</span></span>` : '';
     const nameAvatar = group && m.sender !== 'user';
@@ -204,7 +206,7 @@ function phoneHtml(messages, characterName, appearance, chapterNumber, layout = 
     // 其余行用透明占位保持对齐；微信对方每条都带头像、我方不显示头像。
     const avatarGhost = skin === 'qq' ? !lastOfRun : skin === 'guardian' ? !firstOfRun : false;
     const avatar = skin === 'wechat' && m.sender === 'user' ? '' : `<span class="message-avatar${nameAvatar ? ' name-avatar' : ''}${avatarGhost ? ' avatar-ghost' : ''}" role="img" aria-label="${escapeHtml(nameAvatar ? senderName + '的头像' : m.sender === 'user' ? '我方头像' : '对方头像')}"${nameAvatar ? ` style="background-image:none!important;background-color:hsl(${hue} 35% 85%)!important;color:#292a27!important;display:flex!important;align-items:center;justify-content:center;font:500 15px/1 system-ui"` : ''}>${nameAvatar ? escapeHtml(Array.from(senderName)[0] || '友') : ''}</span>`;
-    const quoteBelow = quoteWechat || quoteQq;
+    const quoteBelow = quoteClassic || quoteWechat || quoteQq;
     return `${divider}<div class="message ${m.sender === 'user' ? 'own' : ''}${cont}${tail}" data-type="${m.type}">${avatar}<div class="message-content">${nameAvatar ? `<span class="message-sender">${escapeHtml(senderName)}</span>` : ''}<div class="${bubbleCls}">${inner}${inlineTime}</div>${belowTime}${quoteBelow}${receipt}</div></div>`;
   }).join('')}</div>${footer}<div class="phone-home" aria-hidden="true"></div></div></div>`;
 }
