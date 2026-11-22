@@ -112,11 +112,14 @@ export function buildMessages({ snapshot, prompt, mode, chapters = [], instructi
       || preset.prompt_order?.find(o => Number(o.character_id) === 100000)
       || preset.prompt_order?.[0];
     const sequence = order?.order || preset.prompts.map(p => ({ identifier: p.identifier, enabled: p.enabled !== false }));
+    // 组装透明化：记录发送／跳过的提示词条目，让用户能在警告区确认草稿、CoT 等入口是否进入了请求。
+    let sentCount = 0;
+    const skippedNames = [];
     for (const item of sequence) {
       if (!item.enabled) continue;
       const p = preset.prompts.find(p => p.identifier === item.identifier);
       if (!p) continue;
-      if (!shouldTrigger(p.injection_trigger, generationType)) continue;
+      if (!shouldTrigger(p.injection_trigger, generationType)) { skippedNames.push((p.name || p.identifier) + '（触发类型不含本次）'); continue; }
       if (p.marker && p.identifier === 'chatHistory') {
         if (!historyAdded) { messages.push(historySlot); historyAdded = true; }
         continue;
@@ -124,13 +127,16 @@ export function buildMessages({ snapshot, prompt, mode, chapters = [], instructi
       let content;
       if (p.marker && Object.hasOwn(blocks, p.identifier)) content = blocks[p.identifier];
       else if (p.content) content = expand(p.content, snapshot, macros);
-      else if (p.marker) { macros.warnings.add('预设占位项「' + (p.name || p.identifier) + '」没有可读取的内容，本次略过该空项。'); continue; }
-      if (!content?.trim()) continue;
+      else if (p.marker) { skippedNames.push((p.name || p.identifier) + '（空占位）'); macros.warnings.add('预设占位项「' + (p.name || p.identifier) + '」没有可读取的内容，本次略过该空项。'); continue; }
+      if (!content?.trim()) { skippedNames.push((p.name || p.identifier) + '（空内容）'); continue; }
+      sentCount++;
       const role = promptRole(p.role);
       if (Number(p.injection_position) === 1) {
         injections.push({ content, role, depth: p.injection_depth ?? 4, order: p.injection_order ?? 100 });
       } else messages.push({ role, content });
     }
+    const presetLabel = snapshot.presetName || preset.name || '自定义预设';
+    macros.warnings.add('已按预设「' + presetLabel + '」组装提示词：发送 ' + sentCount + ' 条' + (skippedNames.length ? '；跳过 ' + skippedNames.length + ' 条：' + skippedNames.slice(0, 4).join('、') + (skippedNames.length > 4 ? ' 等' : '') : ''));
   } else {
     for (const key of ['worldInfoBefore', 'charDescription', 'charPersonality', 'scenario', 'personaDescription', 'dialogueExamples', 'worldInfoAfter']) {
       if (blocks[key]) messages.push({ role: 'system', content: blocks[key] });
