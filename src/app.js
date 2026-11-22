@@ -136,6 +136,10 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   shadow.append(startupStyle);
   window.addEventListener('message', onReaderMessage);
   const launcher = button('', () => open(), { id: 'shunxi-plus-launcher', class: 'launcher shunxi-floating-ball', slot: 'launcher', 'data-theme': 'day', 'aria-label': '打开瞬息SmYz版', title: '瞬息SmYz版 · 拖动可移动，点击打开' });
+  // 资料库异步加载期间（可能十几秒）悬浮球先按缓存的开/关状态隐藏，加载完成后再用真实设置校正，
+  // 避免「关闭了悬浮入口却在进入酒馆时闪现十几秒」。
+  const LAUNCHER_CACHE_KEY = 'shunxi-launcher-enabled';
+  try { if (localStorage.getItem(LAUNCHER_CACHE_KEY) === '0') launcher.hidden = true; } catch { /* 无痕模式等 localStorage 不可用时保持默认 */ }
   launcher.append(mobius(), el('span', { class: 'unread', hidden: true }));
   const dialog = el('dialog', { class: 'shell', 'aria-label': '瞬息SmYz版' });
   const content = el('div', { class: 'workspace' });
@@ -259,7 +263,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     })();
     try { await backgroundSave; } finally { backgroundSave = null; }
   }
-  function setLauncherEnabled(value) { if (!ready) { nativePanel?.sync(!launcher.hidden, true); return; } state.settings.launcherEnabled = value; launcher.hidden = !value; nativePanel?.sync(value); scheduleSave(); }
+  function setLauncherEnabled(value) { try { localStorage.setItem('shunxi-launcher-enabled', value === false ? '0' : '1'); } catch { } if (!ready) { launcher.hidden = value === false; nativePanel?.sync(!launcher.hidden, true); return; } state.settings.launcherEnabled = value; launcher.hidden = !value; nativePanel?.sync(value); scheduleSave(); }
   async function action(fn) { if (busyAction||store?.health.writable===false) return; busyAction = true; try { await fn(); } catch (e) { report(e); } finally { busyAction = false; } }
   // 美化页的两张预览 iframe 在面板关闭时卸掉内容，打开时按需重建（约 45ms 量级）。
   function parkPreviewFrames() {
@@ -1869,7 +1873,9 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
           const verified=await store.load();
           if(!store.health.writable)throw Error('恢复资料未通过重新读取检查，原记录已保留。');
           checkRoute();state=verified;inputDirty=false;
-          storyId = state.stories[0]?.id || null; root.dataset.theme = launcher.dataset.theme = state.settings.theme; launcher.hidden = !state.settings.launcherEnabled; nativePanel?.sync(state.settings.launcherEnabled); render(); notify('备份已恢复并确认保存。');
+          storyId = state.stories[0]?.id || null; root.dataset.theme = launcher.dataset.theme = state.settings.theme; launcher.hidden = !state.settings.launcherEnabled;
+        try { localStorage.setItem('shunxi-launcher-enabled', state.settings.launcherEnabled === false ? '0' : '1'); } catch { }
+        nativePanel?.sync(state.settings.launcherEnabled); render(); notify('备份已恢复并确认保存。');
         }catch(error){
           if(saved||error.code==='LIBRARY_LOCATION_CHANGED'){store.health={kind:'unavailable',writable:false,issues:[{stage:error.code==='LIBRARY_LOCATION_CHANGED'?'location':'restore'}]};store.onHealth?.(store.health);}
           throw error;
@@ -2054,6 +2060,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         ready = true;
         root.dataset.theme = launcher.dataset.theme = state.settings.theme;
         launcher.hidden = state.settings.launcherEnabled === false;
+        try { localStorage.setItem('shunxi-launcher-enabled', state.settings.launcherEnabled === false ? '0' : '1'); } catch { }
         nativePanel?.sync(!launcher.hidden);
         themeButton.disabled = false; themeButton.replaceChildren(windowIcon(state.settings.theme));
         placeLauncher(); content.replaceChildren(); panes.clear(); render(); initializeSync();
@@ -2065,6 +2072,7 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
         const diagnostic=store?.diagnostic?.();
         if(diagnostic)startupDiagnostic={...diagnostic,stages:phase==='location'?{location:1}:Object.keys(diagnostic.stages||{}).length?diagnostic.stages:{[phase]:1}};
         ready = false; state = null; editing = false; editText = ''; storyId = null; chapterIndex = 0; panes.clear();
+        launcher.hidden = false; try { localStorage.setItem('shunxi-launcher-enabled', '1'); } catch { }
         nativePanel?.sync(!launcher.hidden, true);
         autoSync?.dispose();autoSync=null;sync?.dispose(); sync = null;
         await store?.close().catch(() => {}); store = null;
