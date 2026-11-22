@@ -327,18 +327,71 @@ export class TavernHost {
       return result;
     } finally { if (settings.apiMode === 'main') c.eventSource.removeListener(c.eventTypes.GENERATION_STARTED, stopIfMainStarts); }
   }
+  // 本地静态 manifest 的版本号：manifest.json 是版本的唯一来源，避免常量忘改导致显示过期。
+  async localExtensionVersion() {
+    try {
+      const response = await fetch(new URL('manifest.json', this.extensionUrl), { cache: 'no-store' });
+      if (!response.ok) return '';
+      return String(JSON.parse(await response.text()).version || '');
+    } catch { return ''; }
+  }
+  async localRepositoryUrl() {
+    try {
+      const response = await fetch(new URL('manifest.json', this.extensionUrl), { cache: 'no-store' });
+      if (!response.ok) return '';
+      return String(JSON.parse(await response.text()).repository || '');
+    } catch { return ''; }
+  }
+  // 从 git remote 地址推导 GitHub raw manifest 地址，读取远端版本号。
+  async remoteExtensionVersion(remoteUrl) {
+    const match = String(remoteUrl || '').match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?\/?$/i);
+    if (!match) return '';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(`https://raw.githubusercontent.com/${match[1]}/${match[2]}/main/manifest.json`, { signal: controller.signal });
+      if (!response.ok) return '';
+      return String(JSON.parse(await response.text()).version || '');
+    } catch { return ''; } finally { clearTimeout(timer); }
+  }
+  static versionIsNewer(a, b) {
+    const pa = String(a || '').split('.'), pb = String(b || '').split('.');
+    for (let i = 0; i < 3; i++) {
+      const x = parseInt(pa[i]) || 0, y = parseInt(pb[i]) || 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
   async checkUpdate() {
     const match = new URL(this.extensionUrl).pathname.match(/\/scripts\/extensions\/third-party\/([^/]+)\//);
     if (!match) throw new Error('只有通过酒馆扩展安装的 Git 仓库才能检查更新。');
+    const name = decodeURIComponent(match[1]);
+    const current = await this.localExtensionVersion();
+    const serverErrors = [];
     for (const global of [false, true]) {
-      const response = await fetch('/api/extensions/version', { method: 'POST', headers: this.getContext().getRequestHeaders(), body: JSON.stringify({ extensionName: decodeURIComponent(match[1]), global }) });
-      if (response.status === 404) continue;
-      if (!response.ok) throw new Error('检查更新失败，请到酒馆扩展管理重试。');
-      const data = await response.json();
-      return !data.remoteUrl ? '当前是本地安装包。发布后请通过 GitHub 仓库地址安装，才能原位更新。'
-        : data.isUpToDate ? '当前仓库已是最新版本。' : '发现新版本。请在酒馆「扩展管理」中更新瞬息，然后刷新页面；不需要卸载。';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch('/api/extensions/version', { method: 'POST', headers: this.getContext().getRequestHeaders(), body: JSON.stringify({ extensionName: name, global }), signal: controller.signal });
+        if (response.status === 404) continue;
+        if (!response.ok) { serverErrors.push('服务端检查失败'); break; }
+        const data = await response.json();
+        if (!data.remoteUrl) return '当前是本地安装包。发布后请通过 GitHub 仓库地址安装，才能原位更新。';
+        if (!data.isUpToDate) return '发现新版本。请在酒馆「扩展管理」中更新瞬息，然后刷新页面；不需要卸载。';
+        // 服务端的 git fetch 可能失败或 upstream 过期而误报“最新”；用 GitHub 上的 manifest 版本复核。
+        const remote = await this.remoteExtensionVersion(data.remoteUrl);
+        if (remote && TavernHost.versionIsNewer(remote, current)) return `发现新版本 ${remote}。请在酒馆「扩展管理」中更新瞬息，然后刷新页面；不需要卸载。`;
+        return '当前仓库已是最新版本。';
+      } catch { serverErrors.push('服务端连接超时'); }
+      finally { clearTimeout(timer); }
     }
-    throw new Error('未找到扩展安装目录，请到酒馆扩展管理检查。');
+    // 服务端不可达或误报最新时：改用 GitHub 上的 manifest 版本号直接对比。
+    const repo = await this.localRepositoryUrl();
+    const remote = await this.remoteExtensionVersion(repo);
+    if (remote && TavernHost.versionIsNewer(remote, current)) return `发现新版本 ${remote}。请在酒馆「扩展管理」中更新瞬息，然后刷新页面；不需要卸载。`;
+    if (remote) return '当前仓库已是最新版本。';
+    if (serverErrors.length) throw new Error('更新检查失败（' + serverErrors[0] + '），请稍后重试或到酒馆「扩展管理」手动检查。');
+    return '当前仓库已是最新版本。';
   }
   dispose() { this.disposers.forEach(off => off()); }
 }
