@@ -840,7 +840,12 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
   function copyStory(story) {
     const write = async (kind, all) => {
       if (task || editing) return notify('请先结束生成或保存编辑。');
-      const value = kind === 'code' ? storySourceText(story, { all, chapterIndex }) : storyPlainText(story, { all, chapterIndex });
+      let value = '';
+      if (kind === 'reader') {
+        const themeForChapter = ch => resolveChapterTheme(state, story, ch);
+        value = renderReader(story, themeForChapter(story.chapters[chapterIndex ?? 0] || {}), all ? null : chapterIndex, themeForChapter, null, { followFont: state.settings.followFont !== false, cardScripts: state.settings.cardScripts === true, readScale: state.settings.readScale, phoneTheme: resolveTheme(state, 'phone', state.settings.phoneTheme), ...phoneRenderOptions(story) });
+      }
+      else value = kind === 'code' ? storySourceText(story, { all, chapterIndex }) : storyPlainText(story, { all, chapterIndex });
       try { if (!value.trim()) throw new Error('没有可复制的内容。'); await navigator.clipboard.writeText(value); pop.close(); notify('已复制。'); }
       catch { popup('手动复制', el('textarea', { rows: 12, value: value || '', readonly: true })); }
     };
@@ -848,12 +853,14 @@ export async function mount(host, { preview = false, stylesheet = null } = {}) {
     let pop;
     pop = popup('复制番外', single ? el('div', { class: 'choice-list' },
       button('文本', () => write('text', false), { 'data-tour': 'copy-text' }),
-      button('源码', () => write('code', false), { 'data-tour': 'copy-code' }))
+      button('源码', () => write('code', false), { 'data-tour': 'copy-code' }),
+      button('阅读页 HTML', () => write('reader', false)))
       : el('div', { class: 'choice-list' },
         button('文本·本节', () => write('text', false), { 'data-tour': 'copy-text' }),
         button('文本·整篇', () => write('text', true)),
         button('源码·本节', () => write('code', false), { 'data-tour': 'copy-code' }),
-        button('源码·整篇', () => write('code', true))));
+        button('源码·整篇', () => write('code', true)),
+        button('阅读页·整篇', () => write('reader', true))));
   }
   // 外部导入：文本原样进入正文，源码按 <小手机> / <瞬息-html> 解析后混排渲染。
   function importExternal() {
